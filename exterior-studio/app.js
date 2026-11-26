@@ -2,7 +2,7 @@ const el=id=>document.getElementById(id);
 const trialName=new URLSearchParams(location.search).get('trial');
 const referenceTrial=trialName==='reference';
 const goalTrial=trialName==='goal';
-const draftKey=referenceTrial?'b-reference-photo-trial':goalTrial?'goal-photo-trial':'current';
+const draftKey=referenceTrial?'b-reference-selected-photos-v1':goalTrial?'goal-photo-trial':'current';
 const initialScheme=new URLSearchParams(location.search).get('scheme');
 let draft=newDraft(), floor=0, scheme=Object.hasOwn(SCHEMES,initialScheme)?initialScheme:'A',mode='overview',region=1,zoom=1;
 const validTitle=s=>typeof s==='string'&&/^\p{Script=Han}{4}$/u.test(s);
@@ -52,6 +52,20 @@ function persist(){
     tx.onabort=()=>status('本機儲存失敗。請下載草稿以保存修改。');
   }catch{status('此瀏覽器暫無法自動儲存。請下載草稿以保存修改。');}
 }
+let selection;
+function applyPhotoSet(name){
+  selection[name].forEach((pair,i)=>{
+    const previous=draft.floors[i].photos;
+    draft.floors[i].photos=pair.map(id=>previous.find(p=>p.id===id)||
+      {...selection.photos[i].find(p=>p.id===id)});
+  });
+}
+function photoMenu(j){
+  if(!selection)return '';
+  const current=draft.floors[floor].photos[j].id;
+  const options=selection.photos[floor].map(p=>'<option value="'+p.id+'" '+(current===p.id?'selected':'')+'>'+p.id+'　'+textEscape(p.caption)+'</option>').join('');
+  return '<label>已選活動相片<select aria-label="'+slotName(j)+'已選活動相片" data-selected-photo="'+j+'"><option value="" disabled '+(current?'':'selected')+'>選取相片</option>'+options+'</select></label>';
+}
 function slotName(j){return ['左側','右側'][j];}
 function photoCaption(i,j){
   const p=draft.floors[i].photos[j];
@@ -63,6 +77,11 @@ function render(){
   document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.mode===mode));
   document.querySelectorAll('[data-scheme]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.scheme===scheme));
   el('bTitles').hidden=scheme!=='B';
+  el('photoSets').hidden=!selection;
+  if(selection)document.querySelectorAll('[data-photo-set]').forEach(button=>{
+    const matches=selection[button.dataset.photoSet].every((pair,i)=>pair.every((id,j)=>draft.floors[i].photos[j].id===id));
+    button.setAttribute('aria-pressed',String(matches));
+  });
   document.querySelectorAll('[data-b-title]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.bTitle===(draft.bTitle||'sweep')));
   el('cTitles').hidden=scheme!=='C';
   el('titleFace').value=draft.faceByEdition[titleEdition(scheme,draft.cTitle)];
@@ -94,7 +113,7 @@ function populateEditor(){
   el('margin').value=draft.safe;el('bleed').value=draft.bleed;
   el('photoEditors').innerHTML=f.photos.map((p,j)=>{
     const sliders=[['zoom','裁切倍率',1,4,.05],['x','水平位置',0,100,1],['y','垂直位置',0,100,1]];
-    return '<div class="photoCard"><h4>'+slotName(j)+'　／　'+photoCaption(floor,j)+'</h4><label>替換'+slotName(j)+'照片<input data-upload="'+j+'" type="file" accept="image/png,image/jpeg,image/webp"></label>'+sliders.map(([k,label,min,max,step])=>'<label>'+label+' <output>'+p[k]+(k==='zoom'?'×':'%')+'</output><input type="range" aria-label="'+slotName(j)+label+'" data-photo="'+j+'" data-field="'+k+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+p[k]+'" '+(p.src?'':'disabled')+'></label>').join('')+'<button data-clear="'+j+'" '+(p.src?'':'disabled')+'>恢復活動佔位圖</button></div>';
+    return '<div class="photoCard"><h4>'+slotName(j)+'　／　'+photoCaption(floor,j)+'</h4>'+photoMenu(j)+'<label>替換'+slotName(j)+'照片<input data-upload="'+j+'" type="file" accept="image/png,image/jpeg,image/webp"></label>'+sliders.map(([k,label,min,max,step])=>'<label>'+label+' <output>'+p[k]+(k==='zoom'?'×':'%')+'</output><input type="range" aria-label="'+slotName(j)+label+'" data-photo="'+j+'" data-field="'+k+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+p[k]+'" '+(p.src?'':'disabled')+'></label>').join('')+'<button data-clear="'+j+'" '+(p.src?'':'disabled')+'>恢復活動佔位圖</button></div>';
   }).join('');
 }
 function selectFloor(i){floor=i;mode=mode==='detail'?'detail':'full';zoom=1;render();populateEditor();}
@@ -135,6 +154,9 @@ async function deliver(kind){
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.photoSet&&selection){
+    applyPhotoSet(b.dataset.photoSet);changed();populateEditor();
+  }
   if(b.dataset.mode){mode=b.dataset.mode;zoom=1;render();}
   if(b.dataset.scheme){scheme=b.dataset.scheme;render();populateEditor();}
   if(b.dataset.bTitle){
@@ -178,7 +200,16 @@ el('photoEditors').oninput=e=>{
   draft.floors[floor].photos[Number(input.dataset.photo)][k]=Number(input.value);
   input.parentNode.querySelector('output').value=input.value+(k==='zoom'?'×':'%');changed();
 };
-el('photoEditors').onchange=e=>{if(e.target.dataset.upload!==undefined)takePhoto(e.target);};
+el('photoEditors').onchange=e=>{
+  if(e.target.dataset.upload!==undefined)takePhoto(e.target);
+  if(e.target.dataset.selectedPhoto===undefined||!selection)return;
+  const j=Number(e.target.dataset.selectedPhoto),photos=draft.floors[floor].photos;
+  const pick=selection.photos[floor].find(p=>p.id===e.target.value);
+  if(!pick)return;
+  if(photos[1-j].id===pick.id)[photos[j],photos[1-j]]=[photos[1-j],photos[j]];
+  else photos[j]={...pick};
+  changed();populateEditor();
+};
 el('restore').onchange=async e=>{
   const file=e.target.files[0];if(!file)return;
   try{
@@ -197,14 +228,16 @@ el('restore').onchange=async e=>{
   try{local=await openDraft();if(local)draft=validate(local);}
   catch{status('此瀏覽器未能讀取本機草稿，可使用 JSON 儲存及載入。');}
   if(referenceTrial){
-    scheme='B';floor=2;mode='full';
-    if(!local){
-      try{
-        const res=await fetch('trials/B截圖原相.json',{cache:'no-cache'});
-        if(!res.ok)throw Error();
-        draft=validate(await res.json());
-      }catch{status('請從「載入草稿 JSON」開啟 trials 資料夾的「B截圖原相.json」。');}
-    }
+    scheme=Object.hasOwn(SCHEMES,initialScheme)?initialScheme:'B';mode='overview';
+    try{
+      const res=await fetch('trials/selected-photos-v1.json');
+      if(!res.ok)throw Error();
+      selection=await res.json();
+      if(!local){
+        draft.faceByEdition.B='song';draft.bTitle='reference';
+        applyPhotoSet('main');
+      }
+    }catch{status('已選活動相片未能載入，請重新整理，或載入已下載的草稿。');}
   }
   if(goalTrial){
     scheme=Object.hasOwn(SCHEMES,initialScheme)?initialScheme:'C';floor=2;mode='full';
