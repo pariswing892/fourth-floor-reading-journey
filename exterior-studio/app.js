@@ -98,6 +98,7 @@ function render(){
   el('viewHint').textContent=overview?'由上至下排列　·　點選橫額查看全幅':detail?'分區放大　·　'+REGION_NAMES[region]:'全幅　·　774 × 58 吋';
   const visiblePhotos=(overview?draft.floors:[f]).flatMap(v=>v.photos);
   const placed=visiblePhotos.filter(p=>p.src).length;
+  if(placed && (!detail||region!==1))el('viewHint').textContent+='　·　左右拖動相片調整取景';
   el('guideHint').textContent=opts.safety?'綠虛線：安全 '+draft.safe+' 吋　｜　粉紅線：出血 '+draft.bleed+' 吋':(placed?'已置入活動照片　'+placed+' / '+visiblePhotos.length:'活動插畫為待換照片位置');
   el('floors').innerHTML=draft.floors.map((v,i)=>'<button data-floor="'+i+'" aria-pressed="'+(!overview&&floor===i)+'">'+swatch(i)+'<small>'+FLOORS[i].name+'</small>'+textEscape(v.title)+'</button>').join('');
   el('regions').hidden=!detail;
@@ -113,7 +114,7 @@ function populateEditor(){
   el('margin').value=draft.safe;el('bleed').value=draft.bleed;
   el('photoEditors').innerHTML=f.photos.map((p,j)=>{
     const sliders=[['zoom','裁切倍率',1,4,.05],['x','水平位置',0,100,1],['y','垂直位置',0,100,1]];
-    return '<div class="photoCard"><h4>'+slotName(j)+'　／　'+photoCaption(floor,j)+'</h4>'+photoMenu(j)+'<label>替換'+slotName(j)+'照片<input data-upload="'+j+'" type="file" accept="image/png,image/jpeg,image/webp"></label>'+sliders.map(([k,label,min,max,step])=>'<label>'+label+' <output>'+p[k]+(k==='zoom'?'×':'%')+'</output><input type="range" aria-label="'+slotName(j)+label+'" data-photo="'+j+'" data-field="'+k+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+p[k]+'" '+(p.src?'':'disabled')+'></label>').join('')+'<button data-clear="'+j+'" '+(p.src?'':'disabled')+'>恢復活動佔位圖</button></div>';
+    return '<div class="photoCard"><h4>'+slotName(j)+'　／　'+photoCaption(floor,j)+'</h4>'+ (p.src?'<div class="actions"><button data-nudge="-1" data-side="'+j+'" aria-label="'+slotName(j)+'照片向左移">← 向左移</button><button data-nudge="1" data-side="'+j+'" aria-label="'+slotName(j)+'照片向右移">向右移 →</button></div>':'')+photoMenu(j)+'<label>替換'+slotName(j)+'照片<input data-upload="'+j+'" type="file" accept="image/png,image/jpeg,image/webp"></label>'+sliders.map(([k,label,min,max,step])=>'<label>'+label+' <output>'+Number(p[k].toFixed(k==='zoom'?2:0))+(k==='zoom'?'×':'%')+'</output><input type="range" aria-label="'+slotName(j)+label+'" data-photo="'+j+'" data-field="'+k+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+p[k]+'" '+(p.src?'':'disabled')+'></label>').join('')+'<button data-clear="'+j+'" '+(p.src?'':'disabled')+'>恢復活動佔位圖</button></div>';
   }).join('');
 }
 function selectFloor(i){floor=i;mode=mode==='detail'?'detail':'full';zoom=1;render();populateEditor();}
@@ -122,6 +123,49 @@ function panToCenter(){const v=el('view');v.scrollLeft=(v.scrollWidth-v.clientWi
 function toggle(button,panel){
   const show=el(panel).hidden;el(panel).hidden=!show;el(button).setAttribute('aria-expanded',show);return show;
 }
+// Offset is the requested movement of the photo centre in banner units.
+function horizontalCrop(start,box,dx){
+  const im=photoTransform(start,box);
+  const offset=im.x+im.width/2-box.x-box.w/2+dx;
+  const baseWidth=im.width/start.zoom;
+  const zoom=Math.min(4,Math.max(start.zoom,(box.w+2*Math.abs(offset))/baseWidth));
+  const overflow=baseWidth*zoom-box.w;
+  const x=overflow>0.001?Math.max(0,Math.min(100,50-100*offset/overflow)):start.x;
+  return {x,zoom};
+}
+const preview=el('view');
+let drag=null;
+preview.addEventListener('pointerdown',e=>{
+  const image=e.target.closest('[data-layer^="photo-"] image');
+  if(!image||!e.isPrimary||e.button!==0||drag)return;
+  const side=Number(image.closest('[data-layer]').dataset.layer==='photo-right');
+  const row=image.closest('[data-floor]');
+  const photo=draft.floors[row?Number(row.dataset.floor):floor].photos[side];
+  drag={pointer:e.pointerId,photo,start:{...photo},box:photoBox(side,scheme,photo),image,
+    clientX:e.clientX,scale:image.getScreenCTM().a,moved:false};
+  // Capture on the image so a tap still reaches its original floor button.
+  image.setPointerCapture(e.pointerId);
+});
+preview.addEventListener('pointermove',e=>{
+  if(!drag||e.pointerId!==drag.pointer)return;
+  const dx=e.clientX-drag.clientX;
+  if(!drag.moved&&Math.abs(dx)<4)return;
+  drag.moved=true;
+  Object.assign(drag.photo,horizontalCrop(drag.start,drag.box,dx/drag.scale));
+  const im=photoTransform(drag.photo,drag.box);
+  for(const [key,value] of Object.entries(im))drag.image.setAttribute(key,value);
+});
+function finishDrag(e){
+  if(!drag||e.pointerId!==drag.pointer)return;
+  const last=drag;drag=null;
+  if(!last.moved)return;
+  if(e.type==='pointercancel')Object.assign(last.photo,last.start);
+  else persist();
+  render();populateEditor();
+}
+preview.addEventListener('pointerup',finishDrag);
+preview.addEventListener('pointercancel',finishDrag);
+preview.addEventListener('lostpointercapture',finishDrag);
 function readData(file){
   return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.readAsDataURL(file);});
 }
@@ -154,6 +198,13 @@ async function deliver(kind){
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.nudge){
+    const side=Number(b.dataset.side), photo=draft.floors[floor].photos[side];
+    const box=photoBox(side,scheme,photo);
+    Object.assign(photo,horizontalCrop(photo,box,Number(b.dataset.nudge)*box.w*.025));
+    changed();populateEditor();
+    el('photoEditors').querySelector('[data-side="'+side+'"][data-nudge="'+b.dataset.nudge+'"]').focus({preventScroll:true});
+  }
   if(b.dataset.photoSet&&selection){
     applyPhotoSet(b.dataset.photoSet);changed();populateEditor();
   }

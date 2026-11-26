@@ -4,3 +4,7 @@
 .titleChoices{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 14px}.titleChoices strong{font-size:14px}
 
 .cTitleOptions{display:flex;align-items:center;gap:12px}.titleChoices label{font-size:14px;font-weight:600}
+
+#view [data-layer^="photo-"] image{cursor:ew-resize;touch-action:pan-y;user-select:none}
+#view [data-layer="accents"],#view [data-guide]{pointer-events:none}
+#view .artButton:has(image),#view .artView:has(image){touch-action:pan-y pinch-zoom}

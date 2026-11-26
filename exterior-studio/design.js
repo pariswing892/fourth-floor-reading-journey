@@ -94,8 +94,7 @@ function photoSurface(i,j,s,p,photo,id,box){
       <stop offset="1" stop-color="black"/></linearGradient>`;
   return `<defs>${gradient}<mask id="${id}mask" maskUnits="userSpaceOnUse" x="${x}" y="${y}" width="${w}" height="${h}"><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#${id}ink)"/></mask></defs><g mask="url(#${id}mask)">${material}</g>`;
 }
-function picture(i,side,scheme,p,photo,id){
-  const field=photoField(scheme,p);
+function photoBox(side,scheme,photo){
   let box={x:0,y:0,w:FRAME,h:H};
   // A shorter photographic spread keeps action visible within the ultra-wide end panels.
   // Preserve saved custom crops from older drafts. Their original aperture remains editable.
@@ -104,6 +103,10 @@ function picture(i,side,scheme,p,photo,id){
     const paper=scheme==='C', w=side?342:285, inset=paper?20:0;
     box={x:side?FRAME-w-inset:inset,y:paper?5:0,w,h:paper?106:H};
   }
+  return box;
+}
+function picture(i,side,scheme,p,photo,id){
+  const field=photoField(scheme,p), box=photoBox(side,scheme,photo);
   const content=`<rect width="${FRAME}" height="${H}" fill="${field}"/>`+photoSurface(i,side,scheme,p,photo,id,box);
   const flip=side?'translate(1548 116) rotate(180)':'', offset=side?W-FRAME:0;
   return `<defs><clipPath id="${id}"><path transform="${flip}" d="${photoContours[scheme]}"/></clipPath></defs><g data-layer="photo-${side?'right':'left'}" clip-path="url(#${id})"><g transform="translate(${offset} 0)">${content}</g></g>`;
