@@ -60,11 +60,29 @@ function applyPhotoSet(name){
       {...selection.photos[i].find(p=>p.id===id)});
   });
 }
-function photoMenu(j){
-  if(!selection)return '';
-  const current=draft.floors[floor].photos[j].id;
-  const options=selection.photos[floor].map(p=>'<option value="'+p.id+'" '+(current===p.id?'selected':'')+'>'+p.id+'　'+textEscape(p.caption)+'</option>').join('');
-  return '<label>已選活動相片<select aria-label="'+slotName(j)+'已選活動相片" data-selected-photo="'+j+'"><option value="" disabled '+(current?'':'selected')+'>選取相片</option>'+options+'</select></label>';
+function sharedPhotos(){
+  const groups=(selection?.photos||[]).map((photos,i)=>({
+    label:FLOORS[i].name+'　'+FLOORS[i].title,
+    entries:photos.map(photo=>({key:photo.id,label:photo.id+'　'+photo.caption,photo}))
+  }));
+  const known=new Set(groups.flatMap(g=>g.entries.map(e=>e.photo.src)));
+  const extra=[];
+  draft.floors.forEach((f,i)=>f.photos.forEach((photo,j)=>{
+    if(!photo.src||known.has(photo.src))return;
+    known.add(photo.src);
+    const label=FLOORS[i].name+'・'+slotName(j)+(typeof photo.caption==='string'?'　'+photo.caption:'');
+    extra.push({key:'slot-'+i+'-'+j,label,photo});
+  }));
+  if(extra.length)groups.push({label:'目前草稿的其他相片',entries:extra});
+  return groups;
+}
+function photoMenu(j,groups){
+  if(!groups.length)return '';
+  const src=draft.floors[floor].photos[j].src;
+  const options=groups.map(g=>'<optgroup label="'+textEscape(g.label)+'">'+g.entries.map(({key,label,photo})=>
+    '<option value="'+key+'" '+(photo.src===src?'selected':'')+'>'+textEscape(label)+'</option>'
+  ).join('')+'</optgroup>').join('');
+  return '<label>已選活動相片（四層共用）<select aria-label="'+slotName(j)+'已選活動相片" data-selected-photo="'+j+'"><option value="" disabled '+(src?'':'selected')+'>選取相片</option>'+options+'</select></label>';
 }
 function slotName(j){return ['左側','右側'][j];}
 function photoCaption(i,j){
@@ -112,9 +130,10 @@ function populateEditor(){
   el('tone').innerHTML=['標準','濃調','亮調'].map((s,j)=>'<option value="'+j+'">'+FLOORS[floor].color+'　·　'+s+'</option>').join('');
   el('tone').value=f.tone;el('font').value=f.size;el('fontOut').value=f.size/2+' 吋';el('track').value=f.spacing;el('trackOut').value=titleSpacing(f,scheme)/2+' 吋';
   el('margin').value=draft.safe;el('bleed').value=draft.bleed;
+  const groups=sharedPhotos();
   el('photoEditors').innerHTML=f.photos.map((p,j)=>{
     const sliders=[['zoom','裁切倍率',1,4,.05],['x','水平位置',0,100,1],['y','垂直位置',0,100,1]];
-    return '<div class="photoCard"><h4>'+slotName(j)+'　／　'+photoCaption(floor,j)+'</h4>'+ (p.src?'<div class="actions"><button data-nudge="-1" data-side="'+j+'" aria-label="'+slotName(j)+'照片向左移">← 向左移</button><button data-nudge="1" data-side="'+j+'" aria-label="'+slotName(j)+'照片向右移">向右移 →</button></div>':'')+photoMenu(j)+'<label>替換'+slotName(j)+'照片<input data-upload="'+j+'" type="file" accept="image/png,image/jpeg,image/webp"></label>'+sliders.map(([k,label,min,max,step])=>'<label>'+label+' <output>'+Number(p[k].toFixed(k==='zoom'?2:0))+(k==='zoom'?'×':'%')+'</output><input type="range" aria-label="'+slotName(j)+label+'" data-photo="'+j+'" data-field="'+k+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+p[k]+'" '+(p.src?'':'disabled')+'></label>').join('')+'<button data-clear="'+j+'" '+(p.src?'':'disabled')+'>恢復活動佔位圖</button></div>';
+    return '<div class="photoCard"><h4>'+slotName(j)+'　／　'+photoCaption(floor,j)+'</h4>'+ (p.src?'<div class="actions"><button data-nudge="-1" data-side="'+j+'" aria-label="'+slotName(j)+'照片向左移">← 向左移</button><button data-nudge="1" data-side="'+j+'" aria-label="'+slotName(j)+'照片向右移">向右移 →</button></div>':'')+photoMenu(j,groups)+'<label>替換'+slotName(j)+'照片<input data-upload="'+j+'" type="file" accept="image/png,image/jpeg,image/webp"></label>'+sliders.map(([k,label,min,max,step])=>'<label>'+label+' <output>'+Number(p[k].toFixed(k==='zoom'?2:0))+(k==='zoom'?'×':'%')+'</output><input type="range" aria-label="'+slotName(j)+label+'" data-photo="'+j+'" data-field="'+k+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+p[k]+'" '+(p.src?'':'disabled')+'></label>').join('')+'<button data-clear="'+j+'" '+(p.src?'':'disabled')+'>恢復活動佔位圖</button></div>';
   }).join('');
 }
 function selectFloor(i){floor=i;mode=mode==='detail'?'detail':'full';zoom=1;render();populateEditor();}
@@ -253,11 +272,11 @@ el('photoEditors').oninput=e=>{
 };
 el('photoEditors').onchange=e=>{
   if(e.target.dataset.upload!==undefined)takePhoto(e.target);
-  if(e.target.dataset.selectedPhoto===undefined||!selection)return;
+  if(e.target.dataset.selectedPhoto===undefined)return;
   const j=Number(e.target.dataset.selectedPhoto),photos=draft.floors[floor].photos;
-  const pick=selection.photos[floor].find(p=>p.id===e.target.value);
+  const pick=sharedPhotos().flatMap(g=>g.entries).find(entry=>entry.key===e.target.value)?.photo;
   if(!pick)return;
-  if(photos[1-j].id===pick.id)[photos[j],photos[1-j]]=[photos[1-j],photos[j]];
+  if(photos[1-j].src===pick.src)[photos[j],photos[1-j]]=[photos[1-j],photos[j]];
   else photos[j]={...pick};
   changed();populateEditor();
 };
