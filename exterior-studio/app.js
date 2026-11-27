@@ -11,15 +11,23 @@ const status=s=>{el('status').textContent=s;};
 const rasterData=/^data:image\/(jpeg|png|webp);base64,[a-zA-Z0-9+/=]+$/;
 function validate(d){
   if(!d||d.version!==1||!range(d.safe,0,20)||!range(d.bleed,0,10)||!Array.isArray(d.floors)||d.floors.length!==4)throw Error('請選擇四層外牆工程的草稿。');
+  const oldEnglish=['Share Our Talents','Strength in Unity','Work Towards Our Goals','Move Forward Together'];
   for(const f of d.floors){
     if(!validTitle(f.title)||![0,1,2].includes(f.tone)||!range(f.size,64,86)||!range(f.spacing,4,17)||!Array.isArray(f.photos)||f.photos.length!==2)throw Error('草稿的文字或版面數值有誤。');
     if(f.elements===undefined)f.elements=defaultElements(f.title);
     const items=f.elements;
     const short=(value,max)=>typeof value==='string'&&value.length<=max;
     if(!items||typeof items!=='object'||Array.isArray(items))throw Error('設計元素格式有誤。');
+    const theme=FLOORS.findIndex(t=>t.title===f.title);
+    if(d.brandEdition!==2&&theme>=0){
+      const [english,zh,en,keywords]=THEME_COPY[theme];
+      if(items.english===oldEnglish[theme])items.english=english;
+      if(items.unity?.zh===zh&&items.unity?.en===en)delete items.unity;
+      if(!Object.hasOwn(items,'keywords'))items.keywords=keywords;
+    }
     for(const [key,value] of Object.entries(items)){
       if(!Object.hasOwn(ELEMENT_NAMES,key))throw Error('未能辨認設計元素。');
-      const valid=key==='english'?short(value,48):key==='unity'||key==='note'?
+      const valid=(key==='english'||key==='keywords')?short(value,48):key==='unity'||key==='note'?
         value&&short(value.zh,8)&&short(value.en,26):value===true;
       if(!valid)throw Error('設計元素內容有誤。');
     }
@@ -39,7 +47,7 @@ function validate(d){
   for(const retired of ['E','F','G','H'])delete faces[retired];
   if(Object.entries(faces).some(([k,v])=>!Object.hasOwn(DEFAULT_FACES,k)||!Object.hasOwn(FACE_NAMES,v)))throw Error('款式字體設定有誤。');
   d.faceByEdition={...DEFAULT_FACES,C2:d.pressFace??DEFAULT_FACES.C2,...faces};
-  delete d.pressFace;
+  delete d.pressFace;d.brandEdition=2;
   return d;
 }
 let db;
@@ -57,7 +65,7 @@ async function openDraft(){
 // Element edits are small. Journal them while IndexedDB writes the photo-heavy draft.
 const pendingKey='exterior-elements:'+draftKey;
 function elementSnapshot(){
-  return JSON.stringify(draft.floors.map(f=>({title:f.title,elements:f.elements})));
+  return JSON.stringify(draft.floors.map(f=>({brandEdition:2,title:f.title,elements:f.elements})));
 }
 function persist(elementEdit=false){
   let pending;
@@ -171,7 +179,7 @@ function elementControls(f){
   el('elementList').innerHTML=Object.entries(ELEMENT_NAMES).filter(([k])=>Object.hasOwn(f.elements,k)).map(([k,name])=>{
     const item=f.elements[k];
     let fields='';
-    if(k==='english')fields=field(k,'','英文',item,48);
+    if(k==='english'||k==='keywords')fields=field(k,'',k==='english'?'英文':'詞組（以 ・ 分隔）',item,48);
     if(k==='unity'||k==='note')fields=field(k,'zh','中文',item.zh,8)+field(k,'en','英文',item.en,26);
     return '<div class="elementRow"><strong>'+name+'</strong><div class="elementFields">'+fields+'</div><button data-remove-element="'+k+'" aria-label="移除'+name+'">移除</button></div>';
   }).join('');
@@ -183,7 +191,7 @@ el('addElement').onclick=()=>{
   const f=draft.floors[floor],k=el('elementType').value;
   if(!Object.hasOwn(ELEMENT_NAMES,k)||Object.hasOwn(f.elements,k))return;
   const defaults=defaultElements(f.title);
-  f.elements[k]=defaults[k]??(k==='english'?'Our Shared Goal':{zh:'同心同行',en:'Walk Together'});
+  f.elements[k]=defaults[k]??(k==='english'?'Our Shared Goal':k==='keywords'?'同心同行・互相支持':{zh:'同心同行',en:'Walk Together'});
   refreshElements();
   el('elementList').querySelector('[data-element="'+k+'"]')?.focus();
 };
@@ -227,8 +235,9 @@ preview.addEventListener('pointerdown',e=>{
   if(!image||!e.isPrimary||e.button!==0||drag)return;
   const side=Number(image.closest('[data-layer]').dataset.layer==='photo-right');
   const row=image.closest('[data-floor]');
-  const photo=draft.floors[row?Number(row.dataset.floor):floor].photos[side];
-  drag={pointer:e.pointerId,photo,start:{...photo},box:photoBox(side,scheme,photo),image,
+  const targetFloor=row?Number(row.dataset.floor):floor;
+  const photo=draft.floors[targetFloor].photos[side];
+  drag={pointer:e.pointerId,photo,start:{...photo},box:photoBox(side,scheme,photo,targetFloor),image,
     clientX:e.clientX,scale:image.getScreenCTM().a,moved:false};
   // Capture on the image so a tap still reaches its original floor button.
   image.setPointerCapture(e.pointerId);
@@ -275,6 +284,10 @@ async function deliver(kind){
   try{
     if(kind==='draft')save(new Blob([JSON.stringify(draft)],{type:'application/json'}),'四層外牆-可編輯草稿.json');
     else if(kind==='layers')save(new Blob([layeredPreview(draft,floor,scheme)],{type:'image/svg+xml;charset=utf-8'}),name+'-分層初稿.svg');
+    else if(['overview','details','compare'].includes(kind)){
+      const names={overview:'四層總覽',details:'四層局部放大',compare:'新版A與B對照'};
+      save(await raster(proofSheet(draft,scheme,kind),3000),'外牆-'+(kind==='compare'?'':scheme+'-')+names[kind]+'.png');
+    }
     else if(kind==='board')save(await raster(reviewBoard(draft,scheme),2700),'校長審閱-方案'+edition+'總覽.png');
     else{
       const detail=kind==='detail';
@@ -287,7 +300,7 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;
   if(b.dataset.nudge){
     const side=Number(b.dataset.side), photo=draft.floors[floor].photos[side];
-    const box=photoBox(side,scheme,photo);
+    const box=photoBox(side,scheme,photo,floor);
     Object.assign(photo,horizontalCrop(photo,box,Number(b.dataset.nudge)*box.w*.025));
     changed();populateEditor();
     el('photoEditors').querySelector('[data-side="'+side+'"][data-nudge="'+b.dataset.nudge+'"]').focus({preventScroll:true});
@@ -372,7 +385,7 @@ el('restore').onchange=async e=>{
       if(!res.ok)throw Error();
       selection=await res.json();
       if(!local){
-        draft.faceByEdition.B='song';draft.bTitle='reference';
+        draft.bTitle='sweep';
         applyPhotoSet('main');
       }
     }catch{status('已選活動相片未能載入，請重新整理，或載入已下載的草稿。');}
@@ -401,7 +414,7 @@ el('restore').onchange=async e=>{
     const saved=JSON.parse(localStorage.getItem(pendingKey));
     if(saved?.length===4&&saved.every((v,i)=>v.title===draft.floors[i].title)){
       const floors=draft.floors.map((f,i)=>({...f,elements:saved[i].elements}));
-      draft=validate({...draft,floors});persist();
+      draft=validate({...draft,brandEdition:saved.every(v=>v.brandEdition===2)?2:undefined,floors});persist();
     }
   }catch{}
   const requested=new URLSearchParams(location.search).get('title');

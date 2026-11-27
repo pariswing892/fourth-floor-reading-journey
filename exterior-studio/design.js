@@ -19,17 +19,17 @@ const FLOORS = [
   {name:'第三層', title:'朝著目標', color:'藍色', paperTones:['#0563B5','#00549F','#1272C3'], tones:['#347BB3','#286799','#438CC2'], accent:'#F1C858', subjects:['科學探究','比賽練習']},
   {name:'第四層', title:'共同進發', color:'紅色', paperTones:['#C32840','#AD1C33','#CD3549'], tones:['#CC4D50','#B83E45','#DA5B54'], accent:'#B7D6EC', subjects:['校園活動','集體成果']}
 ];
-const ELEMENT_NAMES={english:'英文標語',unity:'團結詞牌',note:'自訂詞牌',left:'左側照片',right:'右側照片',accents:'裝飾筆觸'};
+const ELEMENT_NAMES={english:'英文副標語',keywords:'輔助關鍵詞',unity:'團結詞牌',note:'自訂詞牌',left:'左側照片',right:'右側照片',accents:'裝飾線條'};
 const THEME_COPY=[
-  ['Share Our Talents','群策群力','Pool Our Talents'],
-  ['Strength in Unity','團結一心','United as One'],
-  ['Work Towards Our Goals','並肩努力','Side by Side'],
-  ['Move Forward Together','攜手同行','Hand in Hand']
+  ['Contribute Our Strengths','群策群力','Pool Our Talents','發揮才能・各展所長・彼此欣賞'],
+  ['Unity is Strength','團結一心','United as One','同心同行・互相支持・凝聚力量'],
+  ['Move Towards Our Goals','並肩努力','Side by Side','堅持信念・攜手前行・追求卓越'],
+  ['Moving Forward Together','攜手同行','Hand in Hand','並肩同行・共創未來・一起成長']
 ];
 function defaultElements(title){
   const copy=THEME_COPY[FLOORS.findIndex(f=>f.title===title)];
   const items={left:true,right:true,accents:true};
-  if(copy){items.english=copy[0];items.unity={zh:copy[1],en:copy[2]};}
+  if(copy){items.english=copy[0];items.keywords=copy[3];}
   return items;
 }
 function visiblePhotos(f){
@@ -37,7 +37,7 @@ function visiblePhotos(f){
   return f.photos.filter((_,side)=>elements[side?'right':'left']);
 }
 function headlineSize(f){
-  return f.elements?.english?f.size*.70:f.size;
+  return f.elements?.keywords?f.size*.64:f.elements?.english?f.size*.70:f.size;
 }
 const copyMeasure=document.createElement('canvas').getContext('2d');
 function fittedType(value,size,limit){
@@ -46,7 +46,7 @@ function fittedType(value,size,limit){
   const ratio=Math.min(1,limit/Math.max(1,width));
   return {size:size*ratio,width:width*ratio};
 }
-function captionLayers(elements,p){
+function captionLayers(elements,p,brandInk){
   const font='Arial, PingFang HK, sans-serif';
   let svg='';
   for(const [key,x] of [['unity',516],['note',1032]]){
@@ -59,17 +59,33 @@ function captionLayers(elements,p){
       <path d="M-58 -15v30" stroke="${p.main}" stroke-width="3"/>
       ${tag.zh?line(tag.zh,double?-1:6,18):''}${tag.en?line(tag.en,double?15:5,double?13:16):''}</g>`;
   }
-  if(elements.english){
-    const type=fittedType(elements.english,21,405),w=Math.max(100,type.width+32);
-    svg+=`<g data-layer="english" transform="translate(774 102)">
-      <rect x="${-w/2}" y="-11" width="${w}" height="23" rx="4" fill="${p.ink}"/>
-      <text y="7" text-anchor="middle" font-family="${font}" font-size="${type.size}" font-weight="700" fill="#fffaf0">${textEscape(elements.english)}</text></g>`;
+  if(brandInk){
+    const en=elements.english||'', kw=elements.keywords||'';
+    const enType=fittedType(en,22,300), kwType=fittedType(kw,14,220);
+    const gap=en&&kw?34:0, start=W/2-(enType.width+kwType.width+gap)/2;
+    const split=start+enType.width+gap/2;
+    const text=(key,value,x,type,weight)=>`<g data-layer="${key}"><text x="${x}" y="105" font-family="${font}" font-weight="${weight}" font-size="${type.size}" fill="${brandInk}">${textEscape(value)}</text></g>`;
+    if(en)svg+=text('english',en,start,enType,700);
+    if(kw)svg+=text('keywords',kw,start+enType.width+gap,kwType,500);
+    if(gap)svg+=`<path d="M${split} 91v15" stroke="${brandInk}" opacity=".48"/>`;
+    return svg;
   }
+  const ink='#fffaf0';
+  const compact=Boolean(elements.keywords&&elements.english);
+  function line(key,baseline,size){
+    const text=elements[key];
+    if(!text)return '';
+    const type=fittedType(text,size,420);
+    const back=`<rect x="${-type.width/2-9}" y="${-size}" width="${type.width+18}" height="${size+4}" rx="3" fill="${p.ink}"/>`;
+    return `<g data-layer="${key}" transform="translate(774 ${baseline})">${back}<text text-anchor="middle" font-family="${font}" font-weight="${key==='english'?700:500}" font-size="${type.size}" fill="${ink}">${textEscape(text)}</text></g>`;
+  }
+  svg+=line('english',compact?96:105,compact?20:22);
+  svg+=line('keywords',compact?112:103,13);
   return svg;
 }
 
-const SCHEMES = {A:'清新專業版',B:'活力動感版',C:'紙上展廊',D:'跑道節拍'};
-const DEFAULT_FACES={A:'sans',B:'sans',C1:'sans',C2:'seki',D:'sans'};
+const SCHEMES = {A:'品牌典雅版',B:'活力升級版',C:'紙上展廊',D:'跑道節拍'};
+const DEFAULT_FACES={A:'song',B:'sans',C1:'sans',C2:'seki',D:'sans'};
 const FACE_NAMES={seki:'源石黑體（丹版）',song:'繁體粗宋',sans:'原版粗黑'};
 function titleEdition(scheme,cTitle){
   return scheme==='C'?(cTitle==='press'?'C2':'C1'):scheme;
@@ -78,7 +94,7 @@ const REGIONS = [[0,540],[450,648],[1008,540]];
 const REGION_NAMES=['左側照片','中央標語','右側照片'];
 const textEscape = s => s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
 function newDraft(){
-  return {version:1,pressEdition:2,faceByEdition:{...DEFAULT_FACES},safe:2,bleed:1, floors:FLOORS.map(f=>({title:f.title,elements:defaultElements(f.title),tone:0,size:80,spacing:10,
+  return {version:1,brandEdition:2,pressEdition:2,faceByEdition:{...DEFAULT_FACES},safe:2,bleed:1, floors:FLOORS.map(f=>({title:f.title,elements:defaultElements(f.title),tone:0,size:80,spacing:10,
     photos:[null,null].map(()=>({src:'',width:0,height:0,x:50,y:50,zoom:1}))}))};
 }
 function tint(a,b,weight){
@@ -86,7 +102,10 @@ function tint(a,b,weight){
   return '#'+hex.join('');
 }
 function palette(i,level,scheme){
-  const paper=scheme==='C', main=(paper?FLOORS[i].paperTones:FLOORS[i].tones)[level];
+  const paper=scheme==='C', brand=scheme==='A'||scheme==='B';
+  const hues=['#7545AD','#D66616','#166BA8','#C7384D'];
+  const base=hues[i];
+  const main=brand?[base,tint(base,'#25192F',.17),tint(base,'#FFF6DB',.15)][level]:(paper?FLOORS[i].paperTones:FLOORS[i].tones)[level];
   return {main, ink:tint(main,'#17132A',.61), dark:tint(main,'#20112D',.38),
     pale:tint(main,'#FFF9EC',paper ? .54 : .75),mist:tint(main,'#FFFCF3',paper ? .81 : .93),accent:FLOORS[i].accent};
 }
@@ -143,7 +162,8 @@ function photoSurface(i,j,s,p,photo,id,box){
       <stop offset="1" stop-color="black"/></linearGradient>`;
   return `<defs>${gradient}<mask id="${id}mask" maskUnits="userSpaceOnUse" x="${x}" y="${y}" width="${w}" height="${h}"><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#${id}ink)"/></mask></defs><g mask="url(#${id}mask)">${material}</g>`;
 }
-function photoBox(side,scheme,photo){
+function photoBox(side,scheme,photo,i=0){
+  if(scheme==='A'||scheme==='B')return brandBox(i,side,scheme);
   let box={x:0,y:0,w:FRAME,h:H};
   // A shorter photographic spread keeps action visible within the ultra-wide end panels.
   // Preserve saved custom crops from older drafts. Their original aperture remains editable.
@@ -248,41 +268,58 @@ function trackMarks(p){
       <path d="M547 108H771"/>
     </g>`;
 }
-function ribbons(s,p){
-  if(s==='C')return paperWing(p);
-  if(s==='D')return trackWing(p);
-  if(s==='A') return '<path d="M0 0H473C426 27 481 61 424 96L390 116H0Z" fill="'+p.main+'"/><path d="M0 0H454C420 30 461 56 421 88Q397 109 371 116H0Z" fill="'+p.mist+'"/><g stroke="'+p.main+'" stroke-width="1.5" fill="none" opacity=".62"><path d="M501 -8C445 29 510 69 445 109l-30 19"/><path d="M509 -8C453 30 518 70 453 110l-30 19"/></g>';
-  return '<path d="M0 0H550L490 13l18 -1 -51 18 21 -3 -43 19 44 -9 -55 23 18 -2 -52 24 35 -6 -64 30 34 -7 -57 23H0Z" fill="'+p.main+'"/><path d="M0 0H485l-40 29 16 -5 -56 35 38 -15 -62 39 20 -6 -60 39H0Z" fill="'+p.accent+'"/><path d="M0 0H455L346 116H0Z" fill="'+p.mist+'"/><g fill="'+p.accent+'"><path d="M445 87l62 -30 -47 30 -38 13Z"/><path d="M478 83l35 -17 -24 16 -16 6Z"/><path d="M461 95l24 -9 -18 11Z"/></g>';
+const B_TITLES={plain:'深墨',sweep:'主題色',reference:'暖白'};
+// Aperture coordinates are in the banner's own coordinate system so dragging,
+// full-width output and detail proofs share exactly the same crop.
+function brandBox(i,side,scheme){
+  const lead=side===(i%2===0?1:0);
+  const calm=scheme==='A';
+  const w=calm?(lead?414:274):(lead?467:333);
+  const h=calm&&!lead?94:H;
+  const inset=calm&&!lead?26:0;
+  return {x:side?W-w-inset:inset,y:(H-h)/2,w,h};
 }
-function strokes(s,p){
-  if(s==='C')return paperCreases(p);
-  if(s==='D')return trackMarks(p);
-  if(s==='A')return '<path d="M420 115C492 98 498 61 547 67C508 65 504 104 468 116Z" fill="'+p.pale+'"/><path d="M530 29q7 -7 7 -18q2 12 10 16q-8 2 -10 13q-1 -8 -7 -11Z" fill="'+p.main+'"/>';
-  return '<g fill="'+p.main+'" opacity=".85"><path d="M463 19l61 -17h43l-73 13 22 -1 -45 8Z"/><path d="M486 24l50 -10 -30 10Z"/></g><path d="M527 95q8 -5 20 -21q-5 13 -7 24q-5 -5 -13 -3Z" fill="'+p.accent+'"/>';
+function brandEnd(f,i,side,s,p,id){
+  const {x,y,w,h}=brandBox(i,side,s);
+  const right=side===1, edge=right?x:x+w;
+  // Frame geometry is drawn outer edge first; photographs keep their orientation.
+  const axis=right?(s==='B'?'translate('+W+' '+H+') rotate(180)':'translate('+W+' 0) scale(-1 1)'):'';
+  const reach=right?W-edge:edge, inset=right?W-x-w:x;
+  const a=s==='A',bottom=y+h;
+  const boundary=a?`V${y+h*.59}L${reach-h*.41} ${bottom}`:
+    `C${reach-18} 22 ${reach+6} 63 ${reach-104} 116`;
+  const shape=`M${inset} ${y}H${reach} ${boundary}H${inset}Z`;
+  const band=(shift,fill)=>`<path transform="translate(${shift} 0)" d="${shape}" fill="${fill}"/>`;
+  const key=right?'right':'left';
+  const bands=`<g data-layer="ribbon-${key}" transform="${axis}">${band(a?29:84,a?p.main:p.dark)}${band(a?7:46,a?p.pale:p.main)}${band(a?3:14,a?'#FFF9ED':p.accent)}</g>`;
+  if(!f.elements[key])return bands;
+  return bands+`<defs><clipPath id="${id}cut"><path transform="${axis}" d="${shape}"/></clipPath></defs>
+    <g data-layer="photo-${key}" clip-path="url(#${id}cut)">
+    <rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${a?p.pale:p.main}"/>
+    ${photoSurface(i,side,s,p,f.photos[side],id,{x,y,w,h})}</g>`;
+}
+function brandArtwork(d,i,s,bTitle,p,id){
+  const f=d.floors[i],e=f.elements??defaultElements(f.title),a=s==='A';
+  const light=a||bTitle==='reference';
+  const ink=light?p.ink:'#FFFAF1',paper=a?'#FFFCF4':'#FFF7E8';
+  const base=a?paper:light?p.mist:bTitle==='plain'?p.ink:tint(p.main,p.ink,.42);
+  const outer=a?tint(p.mist,p.main,.16):light?p.pale:tint(p.main,p.dark,.28);
+  const grad=id+'stock';
+  const ground=`<defs><linearGradient id="${grad}"><stop stop-color="${outer}"/><stop offset=".36" stop-color="${base}"/><stop offset=".64" stop-color="${base}"/><stop offset="1" stop-color="${outer}"/></linearGradient></defs>
+  <rect data-layer="ground" width="1548" height="116" fill="url(#${grad})"/>`;
+  const relief=a?
+    `<path d="M0 113H562Q490 112 471 108H0ZM1548 3h-545q49 1 78 5h467Z" fill="${p.main}"/>`:
+    `<path d="M0 0h650c-91 0-135 40-206 58C330 88 169 60 0 99Z" fill="${p.main}" opacity=".66"/>
+    <path d="M1548 116H892c111-3 162-49 254-67 162-32 262-4 402-42Z" fill="${p.main}" opacity=".68"/>`;
+  const signature=`<g fill="none" stroke="${light?p.main:p.pale}" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M697 14h52m50 0h52" stroke-width="1" opacity=".52"/>
+    <path d="M754 9q12-2 20 5 8-7 20-5m-40 5q12-2 20 5 8-7 20-5" stroke-width="1.8"/></g>`;
+  const ends=[0,1].map(side=>brandEnd({...f,elements:e},i,side,s,p,id+side)).join('');
+  const title=titleLayer({...f,size:headlineSize({...f,elements:e})},ink,s,null,d.faceByEdition[s]);
+  return ground+`<g data-layer="title-panel">${relief}</g>`+ends+(e.accents?`<g data-layer="accents">${signature}</g>`:'')+
+    title+captionLayers(e,p,ink);
 }
 
-const B_TITLES={plain:'原版白字',sweep:'揮筆題字・樓層色',reference:'揮筆題字・暖白'};
-function brushTitlePanel(p,reference){
-  // Keep the bristle breaks outside the four glyphs, even at the largest tracking.
-  const stock=reference?tint('#FFF7DF',p.mist,.18):tint(p.main,'#FFFFFF',.53);
-  return `<g data-layer="title-panel" data-layout="sweep">
-    <path fill="${p.ink}" d="M493 32l93-19 388-8 83 4-86 20 38-2-35 65-81 14-338 6-60-4 31-12-19 1 33-34Z"/>
-    <path fill="${p.accent}" d="M503 26l102-20 175-4-90 10-125 15-51 14 18-10-43 8Zm368 75 120-17 59-16-24 13 26-5-73 24-120 11Z"/>
-    <path fill="${stock}" d="M487 42l62-17-24 2 42-12 105-6 269-2 93-4-20 7 47-5-73 17 37-4-23 9-10 24-10 27-9 12 29-3-53 11-109 6-209 2-107 4 29-9-57 9 39-14-25 3 15-10 17-40-24 4 17-10Z"/>
-    <path fill="${stock}" d="M486 51l45-13-19 10-30 8Zm29 57 42-9-13 7-40 8Zm484-92 56-9-20 7-42 6Z"/>
-    <path fill="${p.main}" d="M791 102q67-5 140-7l21-1-24 4 11 1q-68-1-148 3Z"/>
-  </g>`;
-}
-function photoSeams(s,p){
-  const accent=p.pale;
-  const ends={
-    A:`<path d="M197 112c63 5 102 2 147-12 72-22 110-11 147-28-47 28-86 15-145 34-50 16-92 15-149 6Z" fill="${p.pale}"/>`,
-    B:`<path d="M211 116l113-14-32 6 97-30-23 12 76-40-42 33-67 33Z" fill="${p.main}"/><path d="M299 112l85-24-40 16Z" fill="${accent}"/>`,
-    C:`<path d="M13 107l146-5 59 1-194 12Z" fill="${photoField(s,p)}"/><path d="M20 110l173-8" stroke="${p.main}" opacity=".6"/>`,
-    D:`<path d="M0 110h253c74 0 113-7 158-35 29-18 40-42 49-73" fill="none" stroke="${p.pale}" stroke-width="2"/>`
-  };
-  return ends[s]+`<g transform="translate(1548 116) rotate(180)">${ends[s]}</g>`;
-}
 let scope=0;
 function banner(d,i,scheme,{region=null,safety=false,center=false,cTitle=d.cTitle||'fold',bTitle=d.bTitle||'sweep'}={}){
   const f=d.floors[i],p=palette(i,f.tone,scheme),light=scheme==='A',prefix='v'+(++scope);
@@ -294,20 +331,26 @@ function banner(d,i,scheme,{region=null,safety=false,center=false,cTitle=d.cTitl
   const middle=scheme==='C'?tint(p.main,p.dark,.64):scheme==='D'?p.ink:light?p.mist:p.dark;
   const edgeTone=scheme==='C'?tint(p.main,'#FFFFFF',.18):edge;
   const defs=`<defs><linearGradient id="${prefix}bg" x2="1" y2=".24" gradientUnits="objectBoundingBox"><stop stop-color="${edgeTone}"/><stop offset=".33" stop-color="${middle}"/><stop offset=".70" stop-color="${light?'#FFFBF0':middle}"/><stop offset="1" stop-color="${edgeTone}"/></linearGradient><clipPath id="${prefix}trim"><rect width="${W}" height="${H}"/></clipPath></defs>`;
-  const reference=scheme==='B'&&bTitle==='reference';
-  const sweep=scheme==='B'&&bTitle!=='plain';
-  const headlineInk=reference?p.ink:sweep?tint(p.ink,'#17132A',.28):scheme==='C'&&i===1?'#321B09':light?p.ink:'#FFFCF2';
-  const wing=ribbons(scheme,p),stroke=strokes(scheme,p);
-  const press=scheme==='C'&&cTitle==='press';
-  const elements=f.elements??defaultElements(f.title);
-  const typeFloor={...f,size:headlineSize({...f,elements})};
-  const titlePanel=sweep?brushTitlePanel(p,reference):press?letterpressPanel(typeFloor,p):scheme==='C'?paperTitlePanel(p,i):'';
-  const secondInk=reference?tint(p.main,p.ink,.54):tint(tint(p.main,p.ink,.65),'#17132A',.23);
-  const inks=sweep?[headlineInk,headlineInk,secondInk,secondInk]:press?[headlineInk,p.ink,headlineInk,p.ink]:null;
-  const mirrored=part=>part+'<g transform="translate(1548 116) rotate(180)">'+part+'</g>';
-  const slots=f.photos.map((photo,j)=>elements[j?'right':'left']?picture(i,j,scheme,p,photo,prefix+(j?'r':'l')):'').join('');
-  const artwork='<g data-layer="ribbons">'+mirrored(wing)+'</g>'+slots+(elements.accents?'<g data-layer="accents">'+mirrored(stroke)+photoSeams(scheme,p)+'</g>':'')+titlePanel;
-  const design='<g clip-path="url(#'+prefix+'trim)"><rect data-layer="ground" width="'+W+'" height="'+H+'" fill="url(#'+prefix+'bg)"/>'+artwork+titleLayer(typeFloor,headlineInk,scheme,inks,d.faceByEdition[titleEdition(scheme,cTitle)])+captionLayers(elements,p)+'</g>';
+  let art;
+  if(scheme==='A'||scheme==='B'){
+    art=brandArtwork(d,i,scheme,bTitle,p,prefix);
+  }else{
+    const paper=scheme==='C',press=paper&&cTitle==='press';
+    const elements=f.elements??defaultElements(f.title);
+    const typeFloor={...f,size:headlineSize({...f,elements})};
+    const fill=paper&&i===1?'#321B09':'#FFFCF2';
+    const inks=press?[fill,p.ink,fill,p.ink]:null;
+    const mirror=part=>part+'<g transform="translate(1548 116) rotate(180)">'+part+'</g>';
+    const slots=f.photos.map((photo,j)=>elements[j?'right':'left']?picture(i,j,scheme,p,photo,prefix+(j?'r':'l')):'').join('');
+    const seam=paper?`<path d="M13 107l146-5 59 1-194 12Z" fill="${photoField(scheme,p)}"/><path d="M20 110l173-8" stroke="${p.main}" opacity=".6"/>`:
+      `<path d="M0 110h253c74 0 113-7 158-35 29-18 40-42 49-73" fill="none" stroke="${p.pale}" stroke-width="2"/>`;
+    art=`<rect data-layer="ground" width="${W}" height="${H}" fill="url(#${prefix}bg)"/>`+
+      '<g data-layer="ribbons">'+mirror(paper?paperWing(p):trackWing(p))+'</g>'+slots+
+      (elements.accents?'<g data-layer="accents">'+mirror((paper?paperCreases(p):trackMarks(p))+seam)+'</g>':'')+
+      (press?letterpressPanel(typeFloor,p):paper?paperTitlePanel(p,i):'')+
+      titleLayer(typeFloor,fill,scheme,inks,d.faceByEdition[titleEdition(scheme,cTitle)])+captionLayers(elements,p);
+  }
+  const design='<g clip-path="url(#'+prefix+'trim)">'+art+'</g>';
   const m=d.safe*2,guide=safety?'<g data-guide="production" fill="none" stroke-width="1.5"><rect x="'+(-extra+.5)+'" y="'+(-extra+.5)+'" width="'+(W+2*extra-1)+'" height="'+(H+2*extra-1)+'" stroke="#B62868"/><rect x=".5" y=".5" width="1547" height="115" stroke="#28374A"/><rect x="'+m+'" y="'+m+'" width="'+(W-2*m)+'" height="'+(H-2*m)+'" stroke="#087A69" stroke-dasharray="7 4"/></g>':'';
   return '<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="'+textEscape(f.title)+'　方案 '+scheme+'" width="'+w+'" height="'+h+'" viewBox="'+[x,y,w,h].join(' ')+'">'+defs+(extra?'<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" fill="#FAE4ED"/>':'')+design+guide+(center?'<path data-guide="center" d="M774 0v116M0 58h1548" stroke="#04A9B7" stroke-width="1.5" stroke-dasharray="6 3"/>':'')+'</svg>';
 }
@@ -318,7 +361,7 @@ function layeredPreview(d,i,scheme){
   root.setAttribute('data-trim-width-in','774');root.setAttribute('data-trim-height-in','58');
   const title=doc.createElementNS(ns,'title');title.textContent=FLOORS[i].name+' '+d.floors[i].title+'｜方案 '+scheme+(scheme==='B'?' '+B_TITLES[d.bTitle||'sweep']:scheme==='C'?' '+C_TITLES[d.cTitle||'fold']:'')+'｜螢幕審閱初稿';
   root.prepend(title);
-  const labels={...ELEMENT_NAMES,ground:'主題漸層',ribbons:'照片邊緣色帶','photo-left':'左側活動照片','photo-right':'右側活動照片',accents:'裝飾線條','title-panel':scheme==='B'?B_TITLES[d.bTitle||'sweep']:C_TITLES[d.cTitle||'fold'],headline:'中央四字標語'};
+  const labels={...ELEMENT_NAMES,'ribbon-left':'左色帶','ribbon-right':'右色帶',ground:'主題漸層',ribbons:'照片邊緣色帶','photo-left':'左側活動照片','photo-right':'右側活動照片',accents:'裝飾線條','title-panel':scheme==='A'||scheme==='B'?'主題色帶':C_TITLES[d.cTitle||'fold'],headline:'中央四字標語'};
   for(const node of root.querySelectorAll('[data-layer]')){
     const key=node.getAttribute('data-layer');if(!labels[key])continue;
     const group=doc.createElementNS(ns,'g');
