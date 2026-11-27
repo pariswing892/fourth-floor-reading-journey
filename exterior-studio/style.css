@@ -11,3 +11,8 @@
 
 .elementAdd{align-items:center;margin-bottom:10px}.elementRow{display:grid;grid-template-columns:7em minmax(0,1fr) auto;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #dedce0}.elementRow strong,.elementFields label{font-size:14px}.elementFields{display:flex;gap:10px;flex-wrap:wrap}.elementFields label{display:grid;gap:2px;flex:1;color:#504c56}.elementFields input{padding:6px;border:1px solid #bcb9c3;border-radius:4px;min-width:0;width:100%}
 @media(max-width:650px){.elementRow{grid-template-columns:1fr auto}.elementFields:not(:empty){order:3;grid-column:1/-1}.elementFields:empty{display:none}}
+
+.editionNav{display:flex;align-items:center;gap:10px 18px;flex-wrap:wrap;margin:0 0 16px;padding:10px 0;border-block:1px solid #d6d5dc;font-size:14px}
+.editionNav a{color:#483a65;text-underline-offset:3px;font-weight:650}
+.editionNav button{padding:5px 12px;font-size:13px}
+.editionNav span{color:#575461}

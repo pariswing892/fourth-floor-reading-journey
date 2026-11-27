@@ -2,7 +2,8 @@ const el=id=>document.getElementById(id);
 const trialName=new URLSearchParams(location.search).get('trial');
 const referenceTrial=trialName==='reference';
 const goalTrial=trialName==='goal';
-const draftKey=referenceTrial?'b-reference-selected-photos-v1':goalTrial?'goal-photo-trial':'current';
+const baseDraftKey=referenceTrial?'b-reference-selected-photos-v1':goalTrial?'goal-photo-trial':'current';
+const draftKey=editionDraftKey(classicStudio,baseDraftKey,comparingEditions);
 const initialScheme=new URLSearchParams(location.search).get('scheme');
 let draft=newDraft(), floor=0, scheme=Object.hasOwn(SCHEMES,initialScheme)?initialScheme:'A',mode='overview',region=1,zoom=1;
 const validTitle=s=>typeof s==='string'&&/^\p{Script=Han}{4}$/u.test(s);
@@ -57,10 +58,9 @@ async function openDraft(){
     r.onupgradeneeded=()=>r.result.createObjectStore('drafts');
     r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);
   });
-  return new Promise((resolve,reject)=>{
-    const req=db.transaction('drafts').objectStore('drafts').get(draftKey);
-    req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
-  });
+  const own=await readEditionDraft(db,draftKey);
+  if(own||comparingEditions)return own;
+  return readEditionDraft(db,baseDraftKey);
 }
 // Element edits are small. Journal them while IndexedDB writes the photo-heavy draft.
 const pendingKey='exterior-elements:'+draftKey;
@@ -122,6 +122,7 @@ function photoCaption(i,j){
 }
 function swatch(i){return '<i class="swatch" style="--tone:'+palette(i,draft.floors[i].tone,scheme).main+'"></i>';}
 function render(){
+  updateEditionLinks();el('compareHint').hidden=!comparingEditions;
   const f=draft.floors[floor], overview=mode==='overview',detail=mode==='detail';
   document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.mode===mode));
   document.querySelectorAll('[data-scheme]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.scheme===scheme));
