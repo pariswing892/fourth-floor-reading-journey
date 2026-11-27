@@ -1,0 +1,10 @@
+#typeEditor { padding: 16px; background: #f8f6f2; border-top: 1px solid #d8d3d0; }
+.typeFields { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; }
+.typeFields label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+.typeFields input { width: 8em; }
+#typeEditor p { margin: 10px 0 0; color: #545163; font-size: 13px; }
+#typeToggle[aria-expanded="true"] { background: #424056; color: #fff; }
+#view.typeEditing .artButton, #view.typeEditing .artView { touch-action: none; }
+#view.typeEditing [data-type-part] { cursor: grab; user-select: none; pointer-events: bounding-box; }
+#view.typeEditing [data-type-part]:active { cursor: grabbing; }
+#view.typeEditing [data-type-part].typeSelected text { outline: 1px dashed #198392; outline-offset: 2px; }

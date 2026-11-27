@@ -20,16 +20,22 @@ const FLOORS = [
   {name:'第四層', title:'共同進發', color:'紅色', paperTones:['#C32840','#AD1C33','#CD3549'], tones:['#CC4D50','#B83E45','#DA5B54'], accent:'#B7D6EC', subjects:['校園活動','集體成果']}
 ];
 const ELEMENT_NAMES={english:'英文標語',unity:'團結詞牌',note:'自訂詞牌',left:'左側照片',right:'右側照片',accents:'裝飾筆觸'};
-const THEME_COPY=[
+const PREVIOUS_COPY=[
   ['Share Our Talents','群策群力','Pool Our Talents'],
   ['Strength in Unity','團結一心','United as One'],
   ['Work Towards Our Goals','並肩努力','Side by Side'],
   ['Move Forward Together','攜手同行','Hand in Hand']
 ];
+const THEME_COPY=[
+  ['Contribute Our Strengths','發揮才能・各展所長・彼此欣賞'],
+  ['Stronger Together','同心同行・互相支持・凝聚力量'],
+  ['Move Towards Our Goals','堅持信念・攜手前行・追求卓越'],
+  ['Moving Forward Together','並肩同行・共創未來・一起成長']
+];
 function defaultElements(title){
   const copy=THEME_COPY[FLOORS.findIndex(f=>f.title===title)];
   const items={left:true,right:true,accents:true};
-  if(copy){items.english=copy[0];items.unity={zh:copy[1],en:copy[2]};}
+  if(copy){items.english=copy[0];items.unity={zh:copy[1],en:''};}
   return items;
 }
 function visiblePhotos(f){
@@ -37,7 +43,8 @@ function visiblePhotos(f){
   return f.photos.filter((_,side)=>elements[side?'right':'left']);
 }
 function headlineSize(f){
-  return f.elements?.english?f.size*.70:f.size;
+  const e=f.elements;
+  return e?.english||e?.unity?.zh||e?.unity?.en?f.size*.59:f.size;
 }
 const copyMeasure=document.createElement('canvas').getContext('2d');
 function fittedType(value,size,limit){
@@ -46,24 +53,64 @@ function fittedType(value,size,limit){
   const ratio=Math.min(1,limit/Math.max(1,width));
   return {size:size*ratio,width:width*ratio};
 }
-function captionLayers(elements,p){
+const TYPE_PARTS={headline:'中文主標語',english:'英文標語',unityZh:'團結詞牌・中文',unityEn:'團結詞牌・英文',noteZh:'自訂詞牌・中文',noteEn:'自訂詞牌・英文'};
+const TYPE_FACES={
+  sans:['黑體',FONTS],song:['宋體',SONG_FONTS],seki:['源石黑體',SEKI_FAMILY],
+  kai:['楷體',"'Kaiti TC','BiauKai','KaiTi',"+SONG_FONTS],
+  georgia:['Georgia 襯線體',"Georgia,'Times New Roman',"+SONG_FONTS],
+  arial:['Arial 無襯線體','Arial,'+FONTS]
+};
+function movableType(part,style={},markup){
+  return `<g data-type-part="${part}" transform="translate(${(style.x??0)*2} ${(style.y??0)*2})">${markup}</g>`;
+}
+function captionLayers(elements,p,styles){
   const font='Arial, PingFang HK, sans-serif';
   let svg='';
-  for(const [key,x] of [['unity',516],['note',1032]]){
-    const tag=elements[key];
-    if(!tag||(!tag.zh&&!tag.en))continue;
+  const en=(elements.english||'').trim();
+  const words=[elements.unity?.zh,elements.unity?.en].filter(v=>v?.trim()).join('　');
+  if(en||words){
+    const latin="Georgia, 'Times New Roman', serif";
+    const chinese="Arial, 'PingFang HK', 'Microsoft JhengHei', sans-serif";
+    copyMeasure.font='italic 19px '+latin;
+    const enWidth=copyMeasure.measureText(en).width;
+    copyMeasure.font='600 15px '+chinese;
+    const wordWidth=copyMeasure.measureText(words).width;
+    const gap=en&&words?28:0;
+    const scale=Math.min(1,(526-gap)/Math.max(1,enWidth+wordWidth));
+    const left=(W-(enWidth+wordWidth)*scale-gap)/2;
+    const rule=left+enWidth*scale+gap/2;
+    const edge=left-25;
+    // A single warm paper edge carries both captions over every colourway.
+    svg+=`<path data-layer="caption-paper" d="M${edge-23} 116Q${edge-11} 112 ${edge} 100Q${edge+10} 91 ${edge+34} 91H${W-edge-34}Q${W-edge-10} 91 ${W-edge} 100Q${W-edge+11} 112 ${W-edge+23} 116Z" fill="#fff8e9"/>`;
+    const caption=(part,value,x,y,size,family,weight,italic,anchor,ink)=>{
+      const style=styles[part]||{};
+      const face=style.face;
+      const text=`<text data-face="${face||'auto'}" x="${x}" y="${y}" text-anchor="${anchor}" font-weight="${face==='seki'?700:weight}" font-family="${face?TYPE_FACES[face][1]:family}" font-size="${size*(style.scale??100)/100}" font-style="${italic?'italic':'normal'}" fill="${ink}">${textEscape(value)}</text>`;
+      return movableType(part,style,text);
+    };
+    if(en)svg+='<g data-layer="english">'+caption('english',en,left+enWidth*scale,110,19*scale,latin,400,true,'end','#613621')+'</g>';
+    if(gap)svg+=`<path data-layer="caption-rule" d="M${rule} 96v13" stroke="#ad794b" stroke-width="1.2"/>`;
+    if(words){
+      const {zh,en:translation}=elements.unity;
+      const start=rule+gap/2;
+      const offset=zh?.trim()?copyMeasure.measureText(zh+'　').width*scale:0;
+      svg+='<g data-layer="unity">'+
+        (zh?.trim()?caption('unityZh',zh,start,108,15*scale,chinese,600,false,'start','#614839'):'')+
+        (translation?.trim()?caption('unityEn',translation,start+offset,108,15*scale,chinese,600,false,'start','#614839'):'')+'</g>';
+    }
+  }
+  const tag=elements.note;
+  if(tag&&(tag.zh||tag.en)){
     const double=tag.zh&&tag.en;
-    const line=(value,y,size)=>`<text x="0" y="${y}" font-size="${fittedType(value,size,108).size}" fill="${p.ink}">${textEscape(value)}</text>`;
-    svg+=`<g data-layer="${key}" transform="translate(${x} 58)" font-family="${font}" font-weight="700" text-anchor="middle">
+    const line=(part,value,y,size)=>{
+      const style=styles[part]||{};
+      const family=style.face?TYPE_FACES[style.face][1]:font;
+      return movableType(part,style,`<text data-face="${style.face||'auto'}" x="0" y="${y}" font-family="${family}" font-size="${fittedType(value,size,108).size*(style.scale??100)/100}" fill="${p.ink}">${textEscape(value)}</text>`);
+    };
+    svg+=`<g data-layer="note" transform="translate(1032 58)" font-family="${font}" font-weight="700" text-anchor="middle">
       <rect x="-67" y="-23" width="134" height="46" rx="4" fill="#fff8e9" stroke="${p.ink}" stroke-width="1.5"/>
       <path d="M-58 -15v30" stroke="${p.main}" stroke-width="3"/>
-      ${tag.zh?line(tag.zh,double?-1:6,18):''}${tag.en?line(tag.en,double?15:5,double?13:16):''}</g>`;
-  }
-  if(elements.english){
-    const type=fittedType(elements.english,21,405),w=Math.max(100,type.width+32);
-    svg+=`<g data-layer="english" transform="translate(774 102)">
-      <rect x="${-w/2}" y="-11" width="${w}" height="23" rx="4" fill="${p.ink}"/>
-      <text y="7" text-anchor="middle" font-family="${font}" font-size="${type.size}" font-weight="700" fill="#fffaf0">${textEscape(elements.english)}</text></g>`;
+      ${tag.zh?line('noteZh',tag.zh,double?-1:6,18):''}${tag.en?line('noteEn',tag.en,double?15:5,double?13:16):''}</g>`;
   }
   return svg;
 }
@@ -78,7 +125,7 @@ const REGIONS = [[0,540],[450,648],[1008,540]];
 const REGION_NAMES=['左側照片','中央標語','右側照片'];
 const textEscape = s => s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
 function newDraft(){
-  return {version:1,pressEdition:2,faceByEdition:{...DEFAULT_FACES},safe:2,bleed:1, floors:FLOORS.map(f=>({title:f.title,elements:defaultElements(f.title),tone:0,size:80,spacing:10,
+  return {version:1,captionEdition:2,pressEdition:2,faceByEdition:{...DEFAULT_FACES},safe:2,bleed:1, floors:FLOORS.map(f=>({title:f.title,elements:defaultElements(f.title),tone:0,size:80,spacing:10,
     photos:[null,null].map(()=>({src:'',width:0,height:0,x:50,y:50,zoom:1}))}))};
 }
 function tint(a,b,weight){
@@ -96,7 +143,7 @@ function titleSpacing(f,scheme){return f.spacing+(scheme==='C'?20:0);}
 function titleLayer(f,fill,scheme,inks,face){
   const paper=scheme==='C', spacing=titleSpacing(f,scheme);
   const seki=face==='seki', song=face==='song';
-  const family=seki?SEKI_FAMILY:song?SONG_FONTS:FONTS;
+  const family=TYPE_FACES[face][1];
   const attrs='data-face="'+face+'" text-rendering="geometricPrecision" font-family="'+family+'" font-size="'+f.size+'" font-weight="'+(seki||song?700:900)+'" letter-spacing="'+(paper?0:spacing)+'"'+(paper?' dx="0 '+[spacing,spacing,spacing].join(' ')+'"':'');
   const key=[f.title,f.size,spacing,paper,family].join('/');
   if(!titleMetrics.has(key)){
@@ -300,14 +347,16 @@ function banner(d,i,scheme,{region=null,safety=false,center=false,cTitle=d.cTitl
   const wing=ribbons(scheme,p),stroke=strokes(scheme,p);
   const press=scheme==='C'&&cTitle==='press';
   const elements=f.elements??defaultElements(f.title);
-  const typeFloor={...f,size:headlineSize({...f,elements})};
+  const edition=titleEdition(scheme,cTitle),styles=f.typeStyles?.[edition]||{};
+  const head=styles.headline||{};
+  const typeFloor={...f,size:headlineSize({...f,elements})*(head.scale??100)/100};
   const titlePanel=sweep?brushTitlePanel(p,reference):press?letterpressPanel(typeFloor,p):scheme==='C'?paperTitlePanel(p,i):'';
   const secondInk=reference?tint(p.main,p.ink,.54):tint(tint(p.main,p.ink,.65),'#17132A',.23);
   const inks=sweep?[headlineInk,headlineInk,secondInk,secondInk]:press?[headlineInk,p.ink,headlineInk,p.ink]:null;
   const mirrored=part=>part+'<g transform="translate(1548 116) rotate(180)">'+part+'</g>';
   const slots=f.photos.map((photo,j)=>elements[j?'right':'left']?picture(i,j,scheme,p,photo,prefix+(j?'r':'l')):'').join('');
   const artwork='<g data-layer="ribbons">'+mirrored(wing)+'</g>'+slots+(elements.accents?'<g data-layer="accents">'+mirrored(stroke)+photoSeams(scheme,p)+'</g>':'')+titlePanel;
-  const design='<g clip-path="url(#'+prefix+'trim)"><rect data-layer="ground" width="'+W+'" height="'+H+'" fill="url(#'+prefix+'bg)"/>'+artwork+titleLayer(typeFloor,headlineInk,scheme,inks,d.faceByEdition[titleEdition(scheme,cTitle)])+captionLayers(elements,p)+'</g>';
+  const design='<g clip-path="url(#'+prefix+'trim)"><rect data-layer="ground" width="'+W+'" height="'+H+'" fill="url(#'+prefix+'bg)"/>'+artwork+captionLayers(elements,p,styles)+movableType('headline',head,titleLayer(typeFloor,headlineInk,scheme,inks,head.face||d.faceByEdition[edition]))+'</g>';
   const m=d.safe*2,guide=safety?'<g data-guide="production" fill="none" stroke-width="1.5"><rect x="'+(-extra+.5)+'" y="'+(-extra+.5)+'" width="'+(W+2*extra-1)+'" height="'+(H+2*extra-1)+'" stroke="#B62868"/><rect x=".5" y=".5" width="1547" height="115" stroke="#28374A"/><rect x="'+m+'" y="'+m+'" width="'+(W-2*m)+'" height="'+(H-2*m)+'" stroke="#087A69" stroke-dasharray="7 4"/></g>':'';
   return '<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="'+textEscape(f.title)+'　方案 '+scheme+'" width="'+w+'" height="'+h+'" viewBox="'+[x,y,w,h].join(' ')+'">'+defs+(extra?'<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" fill="#FAE4ED"/>':'')+design+guide+(center?'<path data-guide="center" d="M774 0v116M0 58h1548" stroke="#04A9B7" stroke-width="1.5" stroke-dasharray="6 3"/>':'')+'</svg>';
 }
@@ -318,7 +367,7 @@ function layeredPreview(d,i,scheme){
   root.setAttribute('data-trim-width-in','774');root.setAttribute('data-trim-height-in','58');
   const title=doc.createElementNS(ns,'title');title.textContent=FLOORS[i].name+' '+d.floors[i].title+'｜方案 '+scheme+(scheme==='B'?' '+B_TITLES[d.bTitle||'sweep']:scheme==='C'?' '+C_TITLES[d.cTitle||'fold']:'')+'｜螢幕審閱初稿';
   root.prepend(title);
-  const labels={...ELEMENT_NAMES,ground:'主題漸層',ribbons:'照片邊緣色帶','photo-left':'左側活動照片','photo-right':'右側活動照片',accents:'裝飾線條','title-panel':scheme==='B'?B_TITLES[d.bTitle||'sweep']:C_TITLES[d.cTitle||'fold'],headline:'中央四字標語'};
+  const labels={...ELEMENT_NAMES,'caption-paper':'副標底紙','caption-rule':'副標分隔線',ground:'主題漸層',ribbons:'照片邊緣色帶','photo-left':'左側活動照片','photo-right':'右側活動照片',accents:'裝飾線條','title-panel':scheme==='B'?B_TITLES[d.bTitle||'sweep']:C_TITLES[d.cTitle||'fold'],headline:'中央四字標語'};
   for(const node of root.querySelectorAll('[data-layer]')){
     const key=node.getAttribute('data-layer');if(!labels[key])continue;
     const group=doc.createElementNS(ns,'g');

@@ -12,19 +12,36 @@ const status=s=>{el('status').textContent=s;};
 const rasterData=/^data:image\/(jpeg|png|webp);base64,[a-zA-Z0-9+/=]+$/;
 function validate(d){
   if(!d||d.version!==1||!range(d.safe,0,20)||!range(d.bleed,0,10)||!Array.isArray(d.floors)||d.floors.length!==4)throw Error('請選擇四層外牆工程的草稿。');
-  for(const f of d.floors){
+  for(const [i,f] of d.floors.entries()){
     if(!validTitle(f.title)||![0,1,2].includes(f.tone)||!range(f.size,64,86)||!range(f.spacing,4,17)||!Array.isArray(f.photos)||f.photos.length!==2)throw Error('草稿的文字或版面數值有誤。');
-    if(f.elements===undefined)f.elements=defaultElements(f.title);
+    if(f.typeStyles!==undefined){
+      const record=v=>v&&typeof v==='object'&&!Array.isArray(v);
+      const validStyle=([part,style])=>Object.hasOwn(TYPE_PARTS,part)&&record(style)&&
+        Object.entries(style).every(([k,v])=>k==='face'?Object.hasOwn(TYPE_FACES,v):
+          k==='scale'?range(v,25,300):k==='x'?range(v,-774,774):k==='y'&&range(v,-58,58));
+      if(!record(f.typeStyles)||!Object.entries(f.typeStyles).every(([edition,styles])=>
+        Object.hasOwn(DEFAULT_FACES,edition)&&record(styles)&&Object.entries(styles).every(validStyle)))
+        throw Error('文字字體、字級或位移設定有誤。');
+    }
+    if(f.elements===undefined)f.elements=defaultElements(FLOORS[i].title);
     const items=f.elements;
     // Newer bilingual drafts can also be opened or copied into the original artwork.
-    if(d.brandEdition===2&&items&&typeof items==='object')delete items.keywords;
+    if(d.brandEdition===2&&items&&typeof items==='object'){
+      if(!items.unity&&typeof items.keywords==='string')items.unity={zh:items.keywords,en:''};
+      delete items.keywords;
+    }
     const short=(value,max)=>typeof value==='string'&&value.length<=max;
     if(!items||typeof items!=='object'||Array.isArray(items))throw Error('設計元素格式有誤。');
     for(const [key,value] of Object.entries(items)){
       if(!Object.hasOwn(ELEMENT_NAMES,key))throw Error('未能辨認設計元素。');
       const valid=key==='english'?short(value,48):key==='unity'||key==='note'?
-        value&&short(value.zh,8)&&short(value.en,26):value===true;
+        value&&short(value.zh,key==='unity'?48:8)&&short(value.en,26):value===true;
       if(!valid)throw Error('設計元素內容有誤。');
+    }
+    if(d.captionEdition!==2){
+      const [english,zh,en]=PREVIOUS_COPY[i];
+      if(items.english===english)items.english=THEME_COPY[i][0];
+      if(items.unity?.zh===zh&&items.unity.en===en)items.unity={zh:THEME_COPY[i][1],en:''};
     }
     for(const p of f.photos){
       if(!p||typeof p.src!=='string'||(p.src&&!rasterData.test(p.src))||!range(p.zoom,1,4)||!range(p.x,0,100)||!range(p.y,0,100))throw Error('草稿的照片資料有誤。');
@@ -42,7 +59,7 @@ function validate(d){
   for(const retired of ['E','F','G','H'])delete faces[retired];
   if(Object.entries(faces).some(([k,v])=>!Object.hasOwn(DEFAULT_FACES,k)||!Object.hasOwn(FACE_NAMES,v)))throw Error('款式字體設定有誤。');
   d.faceByEdition={...DEFAULT_FACES,C2:d.pressFace??DEFAULT_FACES.C2,...faces};
-  delete d.pressFace;delete d.brandEdition;
+  delete d.pressFace;delete d.brandEdition;d.captionEdition=2;
   return d;
 }
 let db;
@@ -57,7 +74,7 @@ async function openDraft(){
 // Element edits are small. Journal them while IndexedDB writes the photo-heavy draft.
 const pendingKey='exterior-elements:'+draftKey;
 function elementSnapshot(){
-  return JSON.stringify(draft.floors.map(f=>({title:f.title,elements:f.elements})));
+  return JSON.stringify(draft.floors.map(f=>({title:f.title,elements:f.elements,typeStyles:f.typeStyles})));
 }
 function persist(elementEdit=false){
   let pending;
@@ -75,8 +92,13 @@ function persist(elementEdit=false){
     tx.onabort=()=>status('本機儲存失敗。請下載草稿以保存修改。');
   }catch{status('此瀏覽器暫無法自動儲存。請下載草稿以保存修改。');}
 }
-let selection;
+let selection,reviewPhotos;
 function applyPhotoSet(name){
+  if(name==='review'){
+    reviewPhotos.forEach((pair,i)=>{draft.floors[i].photos=pair.map(photo=>({...photo}));});
+    draft.reviewPhotoVersion=2;
+    return;
+  }
   selection[name].forEach((pair,i)=>{
     const previous=draft.floors[i].photos;
     draft.floors[i].photos=pair.map(id=>previous.find(p=>p.id===id)||
@@ -145,6 +167,7 @@ function render(){
   el('floors').innerHTML=draft.floors.map((v,i)=>'<button data-floor="'+i+'" aria-pressed="'+(!overview&&floor===i)+'">'+swatch(i)+'<small>'+FLOORS[i].name+'</small>'+textEscape(v.title)+'</button>').join('');
   el('regions').hidden=!detail;
   el('regions').innerHTML=REGION_NAMES.map((s,j)=>'<button aria-pressed="'+(j===region)+'" data-region="'+j+'">'+s+'</button>').join('');
+  showTypeControls();
   if(!el('boardPanel').hidden)el('boardView').innerHTML=reviewBoard(draft,scheme);
 }
 function populateEditor(){
@@ -173,7 +196,7 @@ function elementControls(f){
     const item=f.elements[k];
     let fields='';
     if(k==='english')fields=field(k,'','英文',item,48);
-    if(k==='unity'||k==='note')fields=field(k,'zh','中文',item.zh,8)+field(k,'en','英文',item.en,26);
+    if(k==='unity'||k==='note')fields=field(k,'zh','中文',item.zh,k==='unity'?48:8)+field(k,'en','英文（選填）',item.en,26);
     return '<div class="elementRow"><strong>'+name+'</strong><div class="elementFields">'+fields+'</div><button data-remove-element="'+k+'" aria-label="移除'+name+'">移除</button></div>';
   }).join('');
 }
@@ -183,7 +206,7 @@ function refreshElements(){
 el('addElement').onclick=()=>{
   const f=draft.floors[floor],k=el('elementType').value;
   if(!Object.hasOwn(ELEMENT_NAMES,k)||Object.hasOwn(f.elements,k))return;
-  const defaults=defaultElements(f.title);
+  const defaults=defaultElements(FLOORS[floor].title);
   f.elements[k]=defaults[k]??(k==='english'?'Our Shared Goal':{zh:'同心同行',en:'Walk Together'});
   refreshElements();
   el('elementList').querySelector('[data-element="'+k+'"]')?.focus();
@@ -222,6 +245,124 @@ function horizontalCrop(start,box,dx){
   return {x,zoom};
 }
 const preview=el('view');
+let typePart='headline',typeDrag=null;
+const currentEdition=()=>titleEdition(scheme,draft.cTitle);
+function typeStyle(part){
+  return draft.floors[floor].typeStyles?.[currentEdition()]?.[part]||{};
+}
+function setTypeStyle(part,patch){
+  const f=draft.floors[floor];
+  f.typeStyles??={};
+  const styles=f.typeStyles[currentEdition()]??={};
+  styles[part]={...styles[part],...patch};
+  if(!styles[part].face)delete styles[part].face;
+}
+function typeOptions(f){
+  const e=f.elements;
+  return {headline:f.title,english:e.english,unityZh:e.unity?.zh,unityEn:e.unity?.en,noteZh:e.note?.zh,noteEn:e.note?.en};
+}
+function showTypeControls(){
+  el('typeApplyResult').textContent='';
+  const enabled=!el('typeEditor').hidden;
+  const view=el('view');
+  view.classList.toggle('typeEditing',enabled);
+  if(!enabled)return;
+  const options=Object.entries(typeOptions(draft.floors[floor])).filter(([,value])=>value?.trim());
+  if(!options.some(([key])=>key===typePart))typePart='headline';
+  el('typePart').innerHTML=options.map(([key,value])=>'<option value="'+key+'">'+TYPE_PARTS[key]+'　'+textEscape(value)+'</option>').join('');
+  el('typePart').value=typePart;
+  const style=typeStyle(typePart);
+  let fallback=typePart==='english'?'Georgia 斜體':'Arial／黑體';
+  if(typePart==='headline')fallback=FACE_NAMES[draft.faceByEdition[currentEdition()]];
+  el('typeFace').innerHTML='<option value="">預設 · '+fallback+'</option>'+Object.entries(TYPE_FACES).map(([key,[name]])=>'<option value="'+key+'">'+name+'</option>').join('');
+  el('typeFace').value=style.face||'';
+  el('typeScale').value=style.scale??100;
+  el('typeX').value=style.x??0;
+  el('typeY').value=style.y??0;
+  el('typeFloor').textContent=FLOORS[floor].name+' · '+currentEdition();
+  for(const part of view.querySelectorAll('[data-type-part]')){
+    const row=part.closest('[data-floor]');
+    part.classList.toggle('typeSelected',part.dataset.typePart===typePart&&(!row||Number(row.dataset.floor)===floor));
+  }
+}
+el('typeToggle').onclick=()=>{
+  toggle('typeToggle','typeEditor');showTypeControls();
+};
+el('typePart').onchange=e=>{typePart=e.target.value;showTypeControls();};
+el('typeFace').onchange=e=>{setTypeStyle(typePart,{face:e.target.value});changed(true);};
+for(const [id,key] of [['typeScale','scale'],['typeX','x'],['typeY','y']]){
+  el(id).onchange=e=>{
+    const field=e.target;
+    if(!Number.isFinite(field.valueAsNumber)||!field.validity.valid){
+      status('請輸入欄位範圍內的數字。');showTypeControls();return;
+    }
+    setTypeStyle(typePart,{[key]:field.valueAsNumber});changed(true);
+  };
+}
+el('typeReset').onclick=()=>{
+  const styles=draft.floors[floor].typeStyles?.[currentEdition()];
+  if(styles)delete styles[typePart];
+  changed(true);
+};
+el('applyTypeToFloors').onclick=()=>{
+  const edition=currentEdition(),source=draft.floors[floor];
+  const parts=Object.entries(typeOptions(source)).filter(([,value])=>value?.trim());
+  for(const target of draft.floors){
+    if(target===source)continue;
+    const targetParts=typeOptions(target);
+    for(const [part] of parts){
+      if(!targetParts[part]?.trim())continue;
+      const style=source.typeStyles?.[edition]?.[part];
+      if(style){
+        target.typeStyles??={};
+        const styles=target.typeStyles[edition]??={};
+        styles[part]={...style};
+      }else if(target.typeStyles?.[edition]){
+        delete target.typeStyles[edition][part];
+      }
+    }
+  }
+  changed(true);
+  el('typeApplyResult').textContent='已將'+FLOORS[floor].name+'（'+edition+' 款）的整層文字排版套用到其餘三層的對應文字。';
+};
+preview.addEventListener('pointerdown',e=>{
+  if(el('typeEditor').hidden||!e.isPrimary||e.button!==0)return;
+  const target=e.target.closest('[data-type-part]');
+  if(!target)return;
+  const row=target.closest('[data-floor]');
+  if(row)floor=Number(row.dataset.floor);
+  typePart=target.dataset.typePart;
+  showTypeControls();
+  const style=typeStyle(typePart);
+  typeDrag={node:target,id:e.pointerId,startX:e.clientX,startY:e.clientY,x:style.x??0,y:style.y??0,
+    matrix:target.ownerSVGElement.getScreenCTM().inverse(),next:null};
+  target.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+preview.addEventListener('pointermove',e=>{
+  const d=typeDrag;
+  if(!d||e.pointerId!==d.id)return;
+  const dx=e.clientX-d.startX,dy=e.clientY-d.startY;
+  if(!d.next&&Math.hypot(dx,dy)<2)return;
+  const round=(v,max)=>Math.max(-max,Math.min(max,Math.round(v*2)/2));
+  const x=round(d.x+(d.matrix.a*dx+d.matrix.c*dy)/2,774);
+  const y=round(d.y+(d.matrix.b*dx+d.matrix.d*dy)/2,58);
+  d.next={x,y};
+  d.node.setAttribute('transform','translate('+2*x+' '+2*y+')');
+  el('typeX').value=x;el('typeY').value=y;
+});
+function endTypeDrag(e){
+  if(!typeDrag||e.pointerId!==typeDrag.id)return;
+  const {next}=typeDrag;typeDrag=null;
+  if(next&&e.type==='pointerup'){setTypeStyle(typePart,next);changed(true);}
+  else if(next)render();
+  populateEditor();
+}
+for(const event of ['pointerup','pointercancel','lostpointercapture'])preview.addEventListener(event,endTypeDrag);
+preview.addEventListener('click',e=>{
+  if(!el('typeEditor').hidden&&e.target.closest('[data-type-part]'))e.stopPropagation();
+});
+
 let drag=null;
 preview.addEventListener('pointerdown',e=>{
   const image=e.target.closest('[data-layer^="photo-"] image');
@@ -276,7 +417,8 @@ async function deliver(kind){
   try{
     if(kind==='draft')save(new Blob([JSON.stringify(draft)],{type:'application/json'}),'四層外牆-可編輯草稿.json');
     else if(kind==='layers')save(new Blob([layeredPreview(draft,floor,scheme)],{type:'image/svg+xml;charset=utf-8'}),name+'-分層初稿.svg');
-    else if(kind==='board')save(await raster(reviewBoard(draft,scheme),2700),'校長審閱-方案'+edition+'總覽.png');
+    else if(kind==='board-pdf')save(await a3ReviewPdf(draft,scheme),'校長審閱-方案'+edition+'-A3直向.pdf');
+    else if(kind==='board')save(await a3ReviewPng(draft,scheme),'校長審閱-方案'+edition+'-A3直向.png');
     else{
       const detail=kind==='detail';
       save(await raster(banner(draft,floor,scheme,{region:detail?region:null}),detail?REGIONS[region][1]*3:W*3),name+'-'+(detail?REGION_NAMES[region]:'全幅')+'.png');
@@ -329,7 +471,7 @@ function updateTitle(){
 el('headline').oninput=e=>{if(!e.isComposing)updateTitle();};el('headline').oncompositionend=updateTitle;
 el('tone').onchange=e=>{draft.floors[floor].tone=Number(e.target.value);changed();};
 for(const [id,key,out] of [['font','size','fontOut'],['track','spacing','trackOut']]){
-  el(id).oninput=e=>{const v=Number(e.target.value);draft.floors[floor][key]=v;el(out).value=(key==='spacing'?titleSpacing(draft.floors[floor],scheme):v)/2+' 吋';changed();};
+  el(id).oninput=e=>{const v=Number(e.target.value);draft.floors[floor][key]=v;el(out).value=(key==='spacing'?titleSpacing(draft.floors[floor],scheme):headlineSize(draft.floors[floor]))/2+' 吋';changed();};
 }
 for(const [id,key] of [['margin','safe'],['bleed','bleed']]){
   el(id).onchange=e=>{const n=e.target.valueAsNumber;if(!Number.isFinite(n)||!e.target.validity.valid){e.target.value=draft[key];status('請使用欄位所示範圍與步距。');return;}draft[key]=n;el('safety').checked=true;changed();};
@@ -356,7 +498,7 @@ el('restore').onchange=async e=>{
     await Promise.all(d.floors.flatMap(f=>f.photos.filter(p=>p.src).map(async p=>{
       const im=await loadImage(p.src);if(p.width!==im.naturalWidth||p.height!==im.naturalHeight)throw Error('草稿與照片原比例不符。');
     })));
-    draft=d;status('已載入草稿。');changed();populateEditor();
+    d.reviewPhotoVersion=2;draft=d;status('已載入草稿。');changed();populateEditor();
   }catch(err){status('未能載入草稿。'+err.message);}finally{e.target.value='';}
 };
 (async()=>{
@@ -366,17 +508,37 @@ el('restore').onchange=async e=>{
   let local;
   try{local=await openDraft();if(local)draft=validate(local);}
   catch{local=null;status('此瀏覽器未能讀取本機草稿，可使用 JSON 儲存及載入。');}
-  if(referenceTrial){
-    scheme=Object.hasOwn(SCHEMES,initialScheme)?initialScheme:'B';mode='overview';
+  if(!goalTrial){
+    if(referenceTrial)scheme=Object.hasOwn(SCHEMES,initialScheme)?initialScheme:'B';
     try{
-      const res=await fetch('trials/selected-photos-v1.json');
-      if(!res.ok)throw Error();
-      selection=await res.json();
-      if(!local){
-        draft.faceByEdition.B='song';draft.bTitle='reference';
-        applyPhotoSet('main');
+      const [galleryResponse,reviewResponse]=await Promise.all([
+        fetch('trials/selected-photos-v1.json'),fetch('classic/review-photos.json')
+      ]);
+      if(!galleryResponse.ok||!reviewResponse.ok)throw Error();
+      const gallery=await galleryResponse.json(),slots=await reviewResponse.json();
+      const previousReview=slots.map((pair,i)=>pair.map(slot=>{
+        if(slot.src){gallery.photos[i].push(slot);return slot;}
+        const source=gallery.photos[i].find(p=>p.id===slot.id);
+        if(!source)throw Error('找不到審閱圖相片');
+        return {...source,...slot};
+      }));
+      // Reuse the eight originals, with the side and framing from the approved reordered proof.
+      const [[market,dance],[blocks,walk],[wall,hands],[camp,group]]=previousReview;
+      reviewPhotos=[
+        [{...market,x:0},{...dance,zoom:1.08,x:14}],
+        [blocks,{...camp,x:83}],
+        [{...hands,zoom:1.105,x:3},wall],
+        [group,walk]
+      ];
+      gallery.review=reviewPhotos.map(pair=>pair.map(photo=>photo.id));
+      selection=gallery;
+      if(referenceTrial&&!local){draft.faceByEdition.B='song';draft.bTitle='reference';}
+      if(!comparingEditions&&draft.reviewPhotoVersion!==2){
+        const previousSet=previousReview.every((pair,i)=>pair.every((p,j)=>draft.floors[i].photos[j].src===p.src));
+        if(!local||!draft.reviewPhotoVersion||previousSet)applyPhotoSet('review');
+        draft.reviewPhotoVersion=2;persist();
       }
-    }catch{status('已選活動相片未能載入，請重新整理，或載入已下載的草稿。');}
+    }catch{status('已選活動相片未能載入，請使用本機預覽網址，或載入已下載的草稿。');}
   }
   if(goalTrial){
     scheme=Object.hasOwn(SCHEMES,initialScheme)?initialScheme:'C';floor=2;mode='full';
@@ -401,7 +563,7 @@ el('restore').onchange=async e=>{
   try{
     const saved=JSON.parse(localStorage.getItem(pendingKey));
     if(saved?.length===4&&saved.every((v,i)=>v.title===draft.floors[i].title)){
-      const floors=draft.floors.map((f,i)=>({...f,elements:saved[i].elements}));
+      const floors=draft.floors.map((f,i)=>({...f,elements:saved[i].elements,typeStyles:saved[i].typeStyles??f.typeStyles}));
       draft=validate({...draft,floors});persist();
     }
   }catch{}
