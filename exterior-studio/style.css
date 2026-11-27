@@ -8,3 +8,6 @@
 #view [data-layer^="photo-"] image{cursor:ew-resize;touch-action:pan-y;user-select:none}
 #view [data-layer="accents"],#view [data-guide]{pointer-events:none}
 #view .artButton:has(image),#view .artView:has(image){touch-action:pan-y pinch-zoom}
+
+.elementAdd{align-items:center;margin-bottom:10px}.elementRow{display:grid;grid-template-columns:7em minmax(0,1fr) auto;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #dedce0}.elementRow strong,.elementFields label{font-size:14px}.elementFields{display:flex;gap:10px;flex-wrap:wrap}.elementFields label{display:grid;gap:2px;flex:1;color:#504c56}.elementFields input{padding:6px;border:1px solid #bcb9c3;border-radius:4px;min-width:0;width:100%}
+@media(max-width:650px){.elementRow{grid-template-columns:1fr auto}.elementFields:not(:empty){order:3;grid-column:1/-1}.elementFields:empty{display:none}}

@@ -13,6 +13,16 @@ function validate(d){
   if(!d||d.version!==1||!range(d.safe,0,20)||!range(d.bleed,0,10)||!Array.isArray(d.floors)||d.floors.length!==4)throw Error('請選擇四層外牆工程的草稿。');
   for(const f of d.floors){
     if(!validTitle(f.title)||![0,1,2].includes(f.tone)||!range(f.size,64,86)||!range(f.spacing,4,17)||!Array.isArray(f.photos)||f.photos.length!==2)throw Error('草稿的文字或版面數值有誤。');
+    if(f.elements===undefined)f.elements=defaultElements(f.title);
+    const items=f.elements;
+    const short=(value,max)=>typeof value==='string'&&value.length<=max;
+    if(!items||typeof items!=='object'||Array.isArray(items))throw Error('設計元素格式有誤。');
+    for(const [key,value] of Object.entries(items)){
+      if(!Object.hasOwn(ELEMENT_NAMES,key))throw Error('未能辨認設計元素。');
+      const valid=key==='english'?short(value,48):key==='unity'||key==='note'?
+        value&&short(value.zh,8)&&short(value.en,26):value===true;
+      if(!valid)throw Error('設計元素內容有誤。');
+    }
     for(const p of f.photos){
       if(!p||typeof p.src!=='string'||(p.src&&!rasterData.test(p.src))||!range(p.zoom,1,4)||!range(p.x,0,100)||!range(p.y,0,100))throw Error('草稿的照片資料有誤。');
       delete p.rightY;
@@ -44,11 +54,24 @@ async function openDraft(){
     req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
   });
 }
-function persist(){
+// Element edits are small. Journal them while IndexedDB writes the photo-heavy draft.
+const pendingKey='exterior-elements:'+draftKey;
+function elementSnapshot(){
+  return JSON.stringify(draft.floors.map(f=>({title:f.title,elements:f.elements})));
+}
+function persist(elementEdit=false){
+  let pending;
+  try{
+    if(elementEdit)localStorage.setItem(pendingKey,elementSnapshot());
+    pending=localStorage.getItem(pendingKey);
+  }catch{}
   try{
     if(!db)throw Error();
     const tx=db.transaction('drafts','readwrite');
     tx.objectStore('drafts').put(draft,draftKey);
+    tx.oncomplete=()=>{
+      try{if(pending&&pending===localStorage.getItem(pendingKey))localStorage.removeItem(pendingKey);}catch{}
+    };
     tx.onabort=()=>status('本機儲存失敗。請下載草稿以保存修改。');
   }catch{status('此瀏覽器暫無法自動儲存。請下載草稿以保存修改。');}
 }
@@ -114,10 +137,10 @@ function render(){
   el('view').innerHTML='<div class="sheet" style="width:'+zoom*100+'%">'+rows+'</div>';
   el('scale').textContent=zoom*100+'%';el('minus').disabled=zoom<=1;el('plus').disabled=zoom>=4;
   el('viewHint').textContent=overview?'由上至下排列　·　點選橫額查看全幅':detail?'分區放大　·　'+REGION_NAMES[region]:'全幅　·　774 × 58 吋';
-  const visiblePhotos=(overview?draft.floors:[f]).flatMap(v=>v.photos);
-  const placed=visiblePhotos.filter(p=>p.src).length;
+  const visiblePhotosInView=(overview?draft.floors:[f]).flatMap(visiblePhotos);
+  const placed=visiblePhotosInView.filter(p=>p.src).length;
   if(placed && (!detail||region!==1))el('viewHint').textContent+='　·　左右拖動相片調整取景';
-  el('guideHint').textContent=opts.safety?'綠虛線：安全 '+draft.safe+' 吋　｜　粉紅線：出血 '+draft.bleed+' 吋':(placed?'已置入活動照片　'+placed+' / '+visiblePhotos.length:'活動插畫為待換照片位置');
+  el('guideHint').textContent=opts.safety?'綠虛線：安全 '+draft.safe+' 吋　｜　粉紅線：出血 '+draft.bleed+' 吋':(placed?'已置入活動照片　'+placed+' / '+visiblePhotosInView.length:visiblePhotosInView.length?'活動插畫為待換照片位置':'本層已移除照片框');
   el('floors').innerHTML=draft.floors.map((v,i)=>'<button data-floor="'+i+'" aria-pressed="'+(!overview&&floor===i)+'">'+swatch(i)+'<small>'+FLOORS[i].name+'</small>'+textEscape(v.title)+'</button>').join('');
   el('regions').hidden=!detail;
   el('regions').innerHTML=REGION_NAMES.map((s,j)=>'<button aria-pressed="'+(j===region)+'" data-region="'+j+'">'+s+'</button>').join('');
@@ -128,16 +151,61 @@ function populateEditor(){
   el('level').innerHTML=draft.floors.map((v,i)=>'<option value="'+i+'">'+FLOORS[i].name+'　'+textEscape(v.title)+'</option>').join('');
   el('level').value=floor;el('headline').value=f.title;el('titleHint').textContent='';
   el('tone').innerHTML=['標準','濃調','亮調'].map((s,j)=>'<option value="'+j+'">'+FLOORS[floor].color+'　·　'+s+'</option>').join('');
-  el('tone').value=f.tone;el('font').value=f.size;el('fontOut').value=f.size/2+' 吋';el('track').value=f.spacing;el('trackOut').value=titleSpacing(f,scheme)/2+' 吋';
+  el('tone').value=f.tone;el('font').value=f.size;el('fontOut').value=Number((headlineSize(f)/2).toFixed(1))+' 吋';el('track').value=f.spacing;el('trackOut').value=titleSpacing(f,scheme)/2+' 吋';
   el('margin').value=draft.safe;el('bleed').value=draft.bleed;
+  elementControls(f);
   const groups=sharedPhotos();
   el('photoEditors').innerHTML=f.photos.map((p,j)=>{
+    if(!f.elements[j?'right':'left'])return '';
     const sliders=[['zoom','裁切倍率',1,4,.05],['x','水平位置',0,100,1],['y','垂直位置',0,100,1]];
     return '<div class="photoCard"><h4>'+slotName(j)+'　／　'+photoCaption(floor,j)+'</h4>'+ (p.src?'<div class="actions"><button data-nudge="-1" data-side="'+j+'" aria-label="'+slotName(j)+'照片向左移">← 向左移</button><button data-nudge="1" data-side="'+j+'" aria-label="'+slotName(j)+'照片向右移">向右移 →</button></div>':'')+photoMenu(j,groups)+'<label>替換'+slotName(j)+'照片<input data-upload="'+j+'" type="file" accept="image/png,image/jpeg,image/webp"></label>'+sliders.map(([k,label,min,max,step])=>'<label>'+label+' <output>'+Number(p[k].toFixed(k==='zoom'?2:0))+(k==='zoom'?'×':'%')+'</output><input type="range" aria-label="'+slotName(j)+label+'" data-photo="'+j+'" data-field="'+k+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+p[k]+'" '+(p.src?'':'disabled')+'></label>').join('')+'<button data-clear="'+j+'" '+(p.src?'':'disabled')+'>恢復活動佔位圖</button></div>';
   }).join('');
 }
+function elementControls(f){
+  const missing=Object.keys(ELEMENT_NAMES).filter(k=>!Object.hasOwn(f.elements,k));
+  el('elementType').innerHTML=missing.length?missing.map(k=>'<option value="'+k+'">'+ELEMENT_NAMES[k]+'</option>').join(''):'<option>本層已加入所有元素</option>';
+  el('addElement').disabled=el('elementType').disabled=!missing.length;
+  function field(key,part,label,value,max){
+    return '<label>'+label+'<input aria-label="'+ELEMENT_NAMES[key]+label+'" data-element="'+key+'" data-part="'+part+'" maxlength="'+max+'" value="'+textEscape(value)+'"></label>';
+  }
+  el('elementList').innerHTML=Object.entries(ELEMENT_NAMES).filter(([k])=>Object.hasOwn(f.elements,k)).map(([k,name])=>{
+    const item=f.elements[k];
+    let fields='';
+    if(k==='english')fields=field(k,'','英文',item,48);
+    if(k==='unity'||k==='note')fields=field(k,'zh','中文',item.zh,8)+field(k,'en','英文',item.en,26);
+    return '<div class="elementRow"><strong>'+name+'</strong><div class="elementFields">'+fields+'</div><button data-remove-element="'+k+'" aria-label="移除'+name+'">移除</button></div>';
+  }).join('');
+}
+function refreshElements(){
+  changed(true);populateEditor();
+}
+el('addElement').onclick=()=>{
+  const f=draft.floors[floor],k=el('elementType').value;
+  if(!Object.hasOwn(ELEMENT_NAMES,k)||Object.hasOwn(f.elements,k))return;
+  const defaults=defaultElements(f.title);
+  f.elements[k]=defaults[k]??(k==='english'?'Our Shared Goal':{zh:'同心同行',en:'Walk Together'});
+  refreshElements();
+  el('elementList').querySelector('[data-element="'+k+'"]')?.focus();
+};
+el('elementList').onclick=e=>{
+  const b=e.target.closest('[data-remove-element]');
+  if(!b)return;
+  const k=b.dataset.removeElement;
+  delete draft.floors[floor].elements[k];
+  refreshElements();el('elementType').value=k;
+};
+el('elementList').oninput=e=>{
+  const {element:k,part}=e.target.dataset;
+  if(!k)return;
+  const f=draft.floors[floor];
+  if(part)f.elements[k][part]=e.target.value;
+  else f.elements[k]=e.target.value;
+  el('fontOut').value=Number((headlineSize(f)/2).toFixed(1))+' 吋';
+  changed(true);
+};
+
 function selectFloor(i){floor=i;mode=mode==='detail'?'detail':'full';zoom=1;render();populateEditor();}
-function changed(){render();persist();}
+function changed(elementEdit=false){render();persist(elementEdit);}
 function panToCenter(){const v=el('view');v.scrollLeft=(v.scrollWidth-v.clientWidth)/2;}
 function toggle(button,panel){
   const show=el(panel).hidden;el(panel).hidden=!show;el(button).setAttribute('aria-expanded',show);return show;
@@ -296,7 +364,7 @@ el('restore').onchange=async e=>{
   catch{status('源石黑體未能載入，請重新開啟完整工程。');}
   let local;
   try{local=await openDraft();if(local)draft=validate(local);}
-  catch{status('此瀏覽器未能讀取本機草稿，可使用 JSON 儲存及載入。');}
+  catch{local=null;status('此瀏覽器未能讀取本機草稿，可使用 JSON 儲存及載入。');}
   if(referenceTrial){
     scheme=Object.hasOwn(SCHEMES,initialScheme)?initialScheme:'B';mode='overview';
     try{
@@ -329,6 +397,13 @@ el('restore').onchange=async e=>{
       }catch{status('請從「載入草稿 JSON」開啟 trials 資料夾內的「朝著目標-試相.json」。');}
     }
   }
+  try{
+    const saved=JSON.parse(localStorage.getItem(pendingKey));
+    if(saved?.length===4&&saved.every((v,i)=>v.title===draft.floors[i].title)){
+      const floors=draft.floors.map((f,i)=>({...f,elements:saved[i].elements}));
+      draft=validate({...draft,floors});persist();
+    }
+  }catch{}
   const requested=new URLSearchParams(location.search).get('title');
   if(scheme==='B'&&Object.hasOwn(B_TITLES,requested))draft.bTitle=requested;
   if(scheme==='C'&&Object.hasOwn(C_TITLES,requested))draft.cTitle=requested;

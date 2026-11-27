@@ -38,8 +38,8 @@ function reviewBoard(d,scheme){
       }
     });
   });
-  const placed=d.floors.flatMap(f=>f.photos).filter(p=>p.src).length;
-  const note=placed?'已置入 '+placed+' / 8 張校方活動照片。':'照片位置以活動插畫示意，供校方選圖及構圖審閱。';
+  const placed=d.floors.flatMap(visiblePhotos).filter(p=>p.src).length;
+  const note=placed?'已置入 '+placed+' 張校方活動照片。':'本稿尚未置入活動照片。';
   out+=line(left,1944,inner)+txt(left,1981,note,20);
   return '<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'" font-family="'+FONTS+'" role="img" aria-label="校長審閱圖">'+out+'</svg>';
 }

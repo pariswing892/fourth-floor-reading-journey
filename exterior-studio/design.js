@@ -19,6 +19,55 @@ const FLOORS = [
   {name:'第三層', title:'朝著目標', color:'藍色', paperTones:['#0563B5','#00549F','#1272C3'], tones:['#347BB3','#286799','#438CC2'], accent:'#F1C858', subjects:['科學探究','比賽練習']},
   {name:'第四層', title:'共同進發', color:'紅色', paperTones:['#C32840','#AD1C33','#CD3549'], tones:['#CC4D50','#B83E45','#DA5B54'], accent:'#B7D6EC', subjects:['校園活動','集體成果']}
 ];
+const ELEMENT_NAMES={english:'英文標語',unity:'團結詞牌',note:'自訂詞牌',left:'左側照片',right:'右側照片',accents:'裝飾筆觸'};
+const THEME_COPY=[
+  ['Share Our Talents','群策群力','Pool Our Talents'],
+  ['Strength in Unity','團結一心','United as One'],
+  ['Work Towards Our Goals','並肩努力','Side by Side'],
+  ['Move Forward Together','攜手同行','Hand in Hand']
+];
+function defaultElements(title){
+  const copy=THEME_COPY[FLOORS.findIndex(f=>f.title===title)];
+  const items={left:true,right:true,accents:true};
+  if(copy){items.english=copy[0];items.unity={zh:copy[1],en:copy[2]};}
+  return items;
+}
+function visiblePhotos(f){
+  const elements=f.elements??defaultElements(f.title);
+  return f.photos.filter((_,side)=>elements[side?'right':'left']);
+}
+function headlineSize(f){
+  return f.elements?.english?f.size*.70:f.size;
+}
+const copyMeasure=document.createElement('canvas').getContext('2d');
+function fittedType(value,size,limit){
+  copyMeasure.font='700 '+size+'px Arial,"PingFang HK",sans-serif';
+  const width=copyMeasure.measureText(value).width;
+  const ratio=Math.min(1,limit/Math.max(1,width));
+  return {size:size*ratio,width:width*ratio};
+}
+function captionLayers(elements,p){
+  const font='Arial, PingFang HK, sans-serif';
+  let svg='';
+  for(const [key,x] of [['unity',516],['note',1032]]){
+    const tag=elements[key];
+    if(!tag||(!tag.zh&&!tag.en))continue;
+    const double=tag.zh&&tag.en;
+    const line=(value,y,size)=>`<text x="0" y="${y}" font-size="${fittedType(value,size,108).size}" fill="${p.ink}">${textEscape(value)}</text>`;
+    svg+=`<g data-layer="${key}" transform="translate(${x} 58)" font-family="${font}" font-weight="700" text-anchor="middle">
+      <rect x="-67" y="-23" width="134" height="46" rx="4" fill="#fff8e9" stroke="${p.ink}" stroke-width="1.5"/>
+      <path d="M-58 -15v30" stroke="${p.main}" stroke-width="3"/>
+      ${tag.zh?line(tag.zh,double?-1:6,18):''}${tag.en?line(tag.en,double?15:5,double?13:16):''}</g>`;
+  }
+  if(elements.english){
+    const type=fittedType(elements.english,21,405),w=Math.max(100,type.width+32);
+    svg+=`<g data-layer="english" transform="translate(774 102)">
+      <rect x="${-w/2}" y="-11" width="${w}" height="23" rx="4" fill="${p.ink}"/>
+      <text y="7" text-anchor="middle" font-family="${font}" font-size="${type.size}" font-weight="700" fill="#fffaf0">${textEscape(elements.english)}</text></g>`;
+  }
+  return svg;
+}
+
 const SCHEMES = {A:'清新專業版',B:'活力動感版',C:'紙上展廊',D:'跑道節拍'};
 const DEFAULT_FACES={A:'sans',B:'sans',C1:'sans',C2:'seki',D:'sans'};
 const FACE_NAMES={seki:'源石黑體（丹版）',song:'繁體粗宋',sans:'原版粗黑'};
@@ -29,7 +78,7 @@ const REGIONS = [[0,540],[450,648],[1008,540]];
 const REGION_NAMES=['左側照片','中央標語','右側照片'];
 const textEscape = s => s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
 function newDraft(){
-  return {version:1,pressEdition:2,faceByEdition:{...DEFAULT_FACES},safe:2,bleed:1, floors:FLOORS.map(f=>({title:f.title,tone:0,size:80,spacing:10,
+  return {version:1,pressEdition:2,faceByEdition:{...DEFAULT_FACES},safe:2,bleed:1, floors:FLOORS.map(f=>({title:f.title,elements:defaultElements(f.title),tone:0,size:80,spacing:10,
     photos:[null,null].map(()=>({src:'',width:0,height:0,x:50,y:50,zoom:1}))}))};
 }
 function tint(a,b,weight){
@@ -250,13 +299,15 @@ function banner(d,i,scheme,{region=null,safety=false,center=false,cTitle=d.cTitl
   const headlineInk=reference?p.ink:sweep?tint(p.ink,'#17132A',.28):scheme==='C'&&i===1?'#321B09':light?p.ink:'#FFFCF2';
   const wing=ribbons(scheme,p),stroke=strokes(scheme,p);
   const press=scheme==='C'&&cTitle==='press';
-  const titlePanel=sweep?brushTitlePanel(p,reference):press?letterpressPanel(f,p):scheme==='C'?paperTitlePanel(p,i):'';
+  const elements=f.elements??defaultElements(f.title);
+  const typeFloor={...f,size:headlineSize({...f,elements})};
+  const titlePanel=sweep?brushTitlePanel(p,reference):press?letterpressPanel(typeFloor,p):scheme==='C'?paperTitlePanel(p,i):'';
   const secondInk=reference?tint(p.main,p.ink,.54):tint(tint(p.main,p.ink,.65),'#17132A',.23);
   const inks=sweep?[headlineInk,headlineInk,secondInk,secondInk]:press?[headlineInk,p.ink,headlineInk,p.ink]:null;
   const mirrored=part=>part+'<g transform="translate(1548 116) rotate(180)">'+part+'</g>';
-  const slots=f.photos.map((photo,j)=>picture(i,j,scheme,p,photo,prefix+(j?'r':'l'))).join('');
-  const artwork='<g data-layer="ribbons">'+mirrored(wing)+'</g>'+slots+'<g data-layer="accents">'+mirrored(stroke)+photoSeams(scheme,p)+'</g>'+titlePanel;
-  const design='<g clip-path="url(#'+prefix+'trim)"><rect data-layer="ground" width="'+W+'" height="'+H+'" fill="url(#'+prefix+'bg)"/>'+artwork+titleLayer(f,headlineInk,scheme,inks,d.faceByEdition[titleEdition(scheme,cTitle)])+'</g>';
+  const slots=f.photos.map((photo,j)=>elements[j?'right':'left']?picture(i,j,scheme,p,photo,prefix+(j?'r':'l')):'').join('');
+  const artwork='<g data-layer="ribbons">'+mirrored(wing)+'</g>'+slots+(elements.accents?'<g data-layer="accents">'+mirrored(stroke)+photoSeams(scheme,p)+'</g>':'')+titlePanel;
+  const design='<g clip-path="url(#'+prefix+'trim)"><rect data-layer="ground" width="'+W+'" height="'+H+'" fill="url(#'+prefix+'bg)"/>'+artwork+titleLayer(typeFloor,headlineInk,scheme,inks,d.faceByEdition[titleEdition(scheme,cTitle)])+captionLayers(elements,p)+'</g>';
   const m=d.safe*2,guide=safety?'<g data-guide="production" fill="none" stroke-width="1.5"><rect x="'+(-extra+.5)+'" y="'+(-extra+.5)+'" width="'+(W+2*extra-1)+'" height="'+(H+2*extra-1)+'" stroke="#B62868"/><rect x=".5" y=".5" width="1547" height="115" stroke="#28374A"/><rect x="'+m+'" y="'+m+'" width="'+(W-2*m)+'" height="'+(H-2*m)+'" stroke="#087A69" stroke-dasharray="7 4"/></g>':'';
   return '<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="'+textEscape(f.title)+'　方案 '+scheme+'" width="'+w+'" height="'+h+'" viewBox="'+[x,y,w,h].join(' ')+'">'+defs+(extra?'<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" fill="#FAE4ED"/>':'')+design+guide+(center?'<path data-guide="center" d="M774 0v116M0 58h1548" stroke="#04A9B7" stroke-width="1.5" stroke-dasharray="6 3"/>':'')+'</svg>';
 }
@@ -267,7 +318,7 @@ function layeredPreview(d,i,scheme){
   root.setAttribute('data-trim-width-in','774');root.setAttribute('data-trim-height-in','58');
   const title=doc.createElementNS(ns,'title');title.textContent=FLOORS[i].name+' '+d.floors[i].title+'｜方案 '+scheme+(scheme==='B'?' '+B_TITLES[d.bTitle||'sweep']:scheme==='C'?' '+C_TITLES[d.cTitle||'fold']:'')+'｜螢幕審閱初稿';
   root.prepend(title);
-  const labels={ground:'主題漸層',ribbons:'照片邊緣色帶','photo-left':'左側活動照片','photo-right':'右側活動照片',accents:'裝飾線條','title-panel':scheme==='B'?B_TITLES[d.bTitle||'sweep']:C_TITLES[d.cTitle||'fold'],headline:'中央四字標語'};
+  const labels={...ELEMENT_NAMES,ground:'主題漸層',ribbons:'照片邊緣色帶','photo-left':'左側活動照片','photo-right':'右側活動照片',accents:'裝飾線條','title-panel':scheme==='B'?B_TITLES[d.bTitle||'sweep']:C_TITLES[d.cTitle||'fold'],headline:'中央四字標語'};
   for(const node of root.querySelectorAll('[data-layer]')){
     const key=node.getAttribute('data-layer');if(!labels[key])continue;
     const group=doc.createElementNS(ns,'g');
